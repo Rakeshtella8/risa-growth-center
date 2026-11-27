@@ -1,0 +1,32 @@
+{
+  "name": "risa-growth-center",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.119.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "recharts": "3.11.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.5",
+    "@types/node": "22.15.0",
+    "@types/pg": "^8.15.6",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vercel/node": "5.5.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "pg": "^8.16.3",
+    "tailwindcss": "4.3.5",
+    "typescript": "5.9.3",
+    "vite": "8.4.0",
+    "vitest": "4.0.15"
+  }
+}

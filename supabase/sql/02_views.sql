@@ -7,6 +7,8 @@
 --  * spend = sum of marketing_spend_inr (credits are negative rows and reduce spend)
 -- Every f_* function takes p_as_of (timestamp). NULL = no cut-off (whole dataset).
 -- The v_* views call the functions with the as_of stored in app_settings.
+-- enable_nestloop = off: CTE row estimates are poor on these small tables and the planner otherwise
+-- picks nested loops (5M comparisons, ~1 s). Hash joins keep every function well under 100 ms.
 
 create or replace function cfg_as_of() returns timestamp language sql stable as
 $$ select as_of from app_settings where id = 1 $$;
@@ -20,37 +22,40 @@ select * from c_people where person_type = 'external';
 
 create or replace function f_registrations(p_as_of timestamp default null)
 returns table(registration_id text, person_id text, campaign_id text, registered_at timestamp, status text)
-language sql stable as $$
-  with r as (
-    select distinct on (registration_id) * from registrations
+language sql stable set enable_nestloop = off as $$
+  with ext as materialized (select person_id from c_ext_people),
+  r as materialized (
+    select distinct on (registration_id) registration_id, person_id, campaign_id, registered_at from registrations
     where (p_as_of is null or registered_at <= p_as_of) order by registration_id, row_id),
-  h as (
-    select distinct on (history_id) * from registration_history
+  h as materialized (
+    select distinct on (history_id) history_id, registration_id, effective_at, status from registration_history
     where (p_as_of is null or effective_at <= p_as_of) order by history_id, row_id),
-  last as (
+  last as materialized (
     select distinct on (registration_id) registration_id, status from h
     order by registration_id, effective_at desc, history_id desc)
   select r.registration_id, r.person_id, r.campaign_id, r.registered_at, coalesce(l.status,'interested')
-  from r join c_ext_people p on p.person_id = r.person_id
-  left join last l on l.registration_id = r.registration_id
+  from r left join last l on l.registration_id = r.registration_id
+  where r.person_id in (select person_id from ext)
 $$;
 
 create or replace function f_visitors(p_as_of timestamp default null)
 returns table(person_id text, first_checkin timestamp, days_attended int)
-language sql stable as $$
-  with c as (
-    select distinct on (event_id) * from checkins
+language sql stable set enable_nestloop = off as $$
+  with ext as materialized (select person_id from c_ext_people),
+  c as materialized (
+    select distinct on (event_id) person_id, occurred_at, result, verification from checkins
     where (p_as_of is null or occurred_at <= p_as_of) order by event_id, row_id)
   select c.person_id, min(c.occurred_at), count(distinct c.occurred_at::date)::int
-  from c join c_ext_people p on p.person_id = c.person_id
+  from c
   where c.result = 'admitted' and c.verification = 'verified'
+    and c.person_id in (select person_id from ext)
   group by c.person_id
 $$;
 
 create or replace function f_spend(p_as_of timestamp default null)
 returns table(activity_id text, campaign_id text, activity_date timestamp, impressions int, clicks int,
               landing_page_sessions int, registration_starts int, spend int)
-language sql stable as $$
+language sql stable set enable_nestloop = off as $$
   select distinct on (activity_id) activity_id, campaign_id, activity_date, impressions, clicks,
          landing_page_sessions, registration_starts, marketing_spend_inr
   from daily_marketing where (p_as_of is null or activity_date <= p_as_of)
@@ -59,7 +64,7 @@ $$;
 
 -- ---------- 1. funnel ----------
 create or replace function f_funnel(p_as_of timestamp default null)
-returns table(metric text, value numeric, definition text) language sql stable as $$
+returns table(metric text, value numeric, definition text) language sql stable set enable_nestloop = off as $$
   with r as (select * from f_registrations(p_as_of)),
        v as (select * from f_visitors(p_as_of)),
        ppl as (select * from c_ext_people where p_as_of is null or first_seen_at <= p_as_of),
@@ -89,25 +94,39 @@ returns table(campaign_id text, campaign_name text, channel text, status text, s
   impressions numeric, clicks numeric, identified int, registrants int, confirmed int, cancelled int,
   visitors int, show_rate_pct numeric, cost_per_registrant numeric, cost_per_visitor numeric,
   cost_ceiling numeric, opt_outs int, flag text)
-language sql stable as $$
-  with s as (select campaign_id, sum(spend) sp, sum(impressions) im, sum(clicks) cl from f_spend(p_as_of) group by 1),
-       r as (select * from f_registrations(p_as_of)),
-       v as (select person_id from f_visitors(p_as_of)),
-       i as (select distinct on (interaction_id) * from interactions
-             where event_type='opted_out' and (p_as_of is null or occurred_at <= p_as_of) order by interaction_id, row_id),
+language sql stable set enable_nestloop = off as $$
+  with ext as materialized (select person_id, first_campaign_id, first_seen_at from c_ext_people),
+       s as materialized (select campaign_id, sum(spend) sp, sum(impressions) im, sum(clicks) cl from f_spend(p_as_of) group by 1),
+       r as materialized (select * from f_registrations(p_as_of)),
+       v as materialized (select person_id from f_visitors(p_as_of)),
+       ra as materialized (
+         select r.campaign_id,
+                count(distinct r.person_id) reg,
+                count(distinct r.person_id) filter (where r.status = 'confirmed') conf,
+                count(distinct r.person_id) filter (where r.status = 'cancelled') canc,
+                count(distinct r.person_id) filter (where r.person_id in (select person_id from v)) vis
+         from r group by r.campaign_id),
+       ia as materialized (
+         select first_campaign_id campaign_id, count(*) idn from ext
+         where p_as_of is null or first_seen_at <= p_as_of group by 1),
+       oa as materialized (
+         select campaign_id, count(distinct person_id) opt from (
+           select distinct on (interaction_id) campaign_id, person_id from interactions
+           where event_type = 'opted_out' and (p_as_of is null or occurred_at <= p_as_of)
+           order by interaction_id, row_id) i
+         where person_id in (select person_id from ext) group by 1),
        k as (
-  select c.campaign_id, c.campaign_name, c.channel, c.status,
-    coalesce(s.sp,0)::numeric sp, coalesce(s.im,0)::numeric im, coalesce(s.cl,0)::numeric cl,
-    (select count(*) from c_ext_people p where p.first_campaign_id=c.campaign_id and (p_as_of is null or p.first_seen_at<=p_as_of))::int idn,
-    (select count(distinct person_id) from r where r.campaign_id=c.campaign_id)::int reg,
-    (select count(distinct person_id) from r where r.campaign_id=c.campaign_id and r.status='confirmed')::int conf,
-    (select count(distinct person_id) from r where r.campaign_id=c.campaign_id and r.status='cancelled')::int canc,
-    (select count(distinct r.person_id) from r join v using(person_id) where r.campaign_id=c.campaign_id)::int vis,
-    (select count(distinct i.person_id) from i join c_ext_people p using(person_id) where i.campaign_id=c.campaign_id)::int opt,
-    b.cost_per_registrant_2025*b.ceiling_multiplier ceil
-  from (select distinct on (campaign_id) * from campaigns order by campaign_id, row_id) c
-  left join s on s.campaign_id=c.campaign_id
-  left join channel_baseline b on b.campaign_id=c.campaign_id)
+         select c.campaign_id, c.campaign_name, c.channel, c.status,
+           coalesce(s.sp,0)::numeric sp, coalesce(s.im,0)::numeric im, coalesce(s.cl,0)::numeric cl,
+           coalesce(ia.idn,0)::int idn, coalesce(ra.reg,0)::int reg, coalesce(ra.conf,0)::int conf,
+           coalesce(ra.canc,0)::int canc, coalesce(ra.vis,0)::int vis, coalesce(oa.opt,0)::int opt,
+           b.cost_per_registrant_2025 * b.ceiling_multiplier ceil
+         from (select distinct on (campaign_id) * from campaigns order by campaign_id, row_id) c
+         left join s on s.campaign_id = c.campaign_id
+         left join ra on ra.campaign_id = c.campaign_id
+         left join ia on ia.campaign_id = c.campaign_id
+         left join oa on oa.campaign_id = c.campaign_id
+         left join channel_baseline b on b.campaign_id = c.campaign_id)
   select campaign_id, campaign_name, channel, status, sp, im, cl, idn, reg, conf, canc, vis,
     round(100.0*vis/nullif(reg,0),1), round(sp/nullif(reg,0),1), round(sp/nullif(vis,0),1), round(ceil,1), opt,
     case when reg = 0 then 'grey'
@@ -123,7 +142,7 @@ create or replace view v_channel_kpis as select * from f_channel_kpis(cfg_as_of(
 create or replace function f_weekly_pace(p_as_of timestamp default null)
 returns table(week_start date, registrations int, cumulative_registrations int, spend_inr numeric,
               cumulative_spend numeric, cost_per_registrant numeric)
-language sql stable as $$
+language sql stable set enable_nestloop = off as $$
   with r as (select date_trunc('week', registered_at)::date wk, count(distinct person_id) n
              from f_registrations(p_as_of) group by 1),
        s as (select date_trunc('week', activity_date)::date wk, sum(spend) sp from f_spend(p_as_of) group by 1),
@@ -139,7 +158,7 @@ create or replace function f_forecast(p_as_of timestamp default null, p_target t
 returns table(target_key text, target_label text, target_attendees int, actual_visitors int,
   registrants int, open_registrants int, assumed_show_rate_pct numeric, walk_ins_assumed int,
   forecast_attendees int, gap_to_target int, budget_inr int, spend_to_date numeric, note text)
-language sql stable as $$
+language sql stable set enable_nestloop = off as $$
   with f as (select metric, value from f_funnel(p_as_of)),
        t as (select * from plan_targets where target_key = coalesce(p_target,(select compare_target from app_settings where id=1))),
        ev as (select event_starts_at from event limit 1),

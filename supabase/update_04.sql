@@ -25,6 +25,7 @@ begin
   return 'reset done';
 end $$;
 
-select reset_to_original() as result,
-       (select demo_clock::text from editions where edition = '2026') as clock_2026,
+select reset_to_original();
+
+select (select demo_clock::text from editions where edition = '2026') as clock_2026,
        (select value::text from f_funnel(null, '2026') where metric = 'registrants') as registrants_2026;

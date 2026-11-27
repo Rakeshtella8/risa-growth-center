@@ -1,4 +1,4 @@
-// OpenAI-compatible chat completions with provider fallback: Groq first, then Gemini.
+// OpenAI-compatible chat completions with fallback across Groq and Gemini models, best model first.
 export interface Provider { name: string; url: string; key: string | undefined; model: string }
 
 // Free tiers limit each MODEL separately (requests and tokens per minute), so the chain tries several models
@@ -8,11 +8,16 @@ const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/com
 const list = (v: string | undefined, d: string) => (v || d).split(',').map((x) => x.trim()).filter(Boolean);
 
 export function providers(): Provider[] {
+  // Ordered by answer quality, not by provider: the small gpt-oss-20b invents comparisons, so it is the last resort.
   const groq = list(process.env.GROQ_MODELS || process.env.GROQ_MODEL, 'openai/gpt-oss-120b,qwen/qwen3.8-27b,openai/gpt-oss-20b');
-  const gem = list(process.env.GEMINI_MODELS || process.env.GEMINI_MODEL, 'gemini-flash-lite-latest,gemini-3.5-flash-lite,gemini-flash-latest,gemini-3.5-flash');
+  const gem = list(process.env.GEMINI_MODELS || process.env.GEMINI_MODEL, 'gemini-flash-latest,gemini-3.5-flash,gemini-flash-lite-latest,gemini-3.5-flash-lite');
+  const g = (model: string): Provider => ({ name: 'groq', url: GROQ, key: process.env.GROQ_API_KEY, model });
+  const m = (model: string): Provider => ({ name: 'gemini', url: GEMINI, key: process.env.GEMINI_API_KEY, model });
+  const small = (x: string) => /gpt-oss-20b/.test(x);
   return [
-    ...groq.map((model) => ({ name: 'groq', url: GROQ, key: process.env.GROQ_API_KEY, model })),
-    ...gem.map((model) => ({ name: 'gemini', url: GEMINI, key: process.env.GEMINI_API_KEY, model })),
+    ...groq.filter((x) => !small(x)).map(g),
+    ...gem.map(m),
+    ...groq.filter(small).map(g),
   ].filter((p) => !!p.key);
 }
 

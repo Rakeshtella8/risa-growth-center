@@ -89,7 +89,10 @@ begin
   execute format('select coalesce(json_agg(t), ''[]''::json) from (select * from (%s) q limit 200) t', clean) into res;
   return json_build_object('row_count', n, 'returned', least(n, 200), 'truncated', n > 200, 'rows', res);
 end $$;
+-- a new owner needs CREATE on the schema (Supabase's postgres user is not a superuser); take it back right after
+grant create on schema public to copilot_ro;
 alter function copilot_query(text) owner to copilot_ro;
+revoke create on schema public from copilot_ro;
 revoke execute on function copilot_query(text) from public;
 grant execute on function copilot_query(text) to anon, authenticated;
 

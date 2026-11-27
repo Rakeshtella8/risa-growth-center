@@ -75,8 +75,23 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
     }
     case 'get_weekly_pace':
       return { as_of: ctx.asOf ?? 'all data', rows: await rpc(ctx, 'f_weekly_pace', { p_as_of }) };
-    case 'get_forecast':
-      return await rpc(ctx, 'f_forecast', { p_as_of, p_target: (args.target_key as string) || ctx.target });
+    case 'get_forecast': {
+      const key = (args.target_key as string) || ctx.target;
+      const fc = (await rpc(ctx, 'f_forecast', { p_as_of, p_target: key })) as Record<string, unknown> | Record<string, unknown>[];
+      const f = (Array.isArray(fc) ? fc[0] : fc) ?? {};
+      if (!ctx.asOf || Number(f.open_registrants ?? 0) === 0) return f;
+      // Mid-campaign: the forecast only counts people registered so far, so also report pace against an even
+      // weekly plan (12 campaign weeks, 20 Jan - 13 Apr) - that is the fair "on track?" test before the fest.
+      const { data: tr } = await ctx.db.from('plan_targets').select('registrants').eq('target_key', key);
+      const t = (tr ?? [])[0] as { registrants?: number } | undefined;
+      const start = Date.UTC(2025, 0, 20);
+      const weeks = Math.min(12, Math.max(0, (new Date(ctx.asOf.replace(' ', 'T') + 'Z').getTime() - start) / (7 * 864e5)));
+      const expected = Math.round((t?.registrants ?? 0) / 12 * weeks);
+      const regs = Number(f.registrants ?? 0);
+      return { ...f, pace: { campaign_weeks_elapsed: Math.round(weeks * 10) / 10, target_registrants: t?.registrants, expected_registrants_by_now_even_pace: expected,
+        registrants_so_far: regs, pace_pct: expected ? Math.round(regs / expected * 1000) / 10 : null,
+        how_to_read: 'pace_pct >= 100 means on track for the registrant target at an even weekly pace [A]; forecast_attendees excludes registrations still to come' } };
+    }
     case 'get_targets': {
       const { data, error } = await ctx.db.from('plan_targets').select('*');
       if (error) throw new Error(error.message);

@@ -3,7 +3,8 @@ export function systemPrompt(asOf: string | null, targetLabel: string) {
 
 DATA YOU WORK WITH
 - The live dataset is the CampusFest 2025 campaign (fictional, 15 Jan - 20 Apr 2025, fest 12-13 Apr 2025). Users may edit it in the app, so ALWAYS fetch numbers with tools; never rely on memory or earlier turns for numbers that could have changed.
-- The 2026 plan (base 2,670 / stretch 3,205 verified attendees on a Rs 3,00,000 budget) is a set of targets and assumptions, not data.
+- 2025 goals (revised 15 Mar 2025, from the data): 3,600 identified, 3,200 registrants, 2,200 verified visitors, Rs 3,00,000 budget. The launch plan before that was 2,800 registrants / 1,800 visitors / Rs 2.4L.
+- The 2026 plan (base 3,117 registrants / 2,670 verified attendees; stretch 3,336 / 3,205; Rs 3,00,000 budget) is a set of targets and assumptions, not data. Don't mix 2025 goals and 2026 targets.
 - Current view: as-of date = ${asOf ?? 'end of dataset (all data)'}; comparison target = ${targetLabel}. State both when they matter.
 
 COUNTING RULES (already applied inside the f_* functions and v_* views)
@@ -21,7 +22,7 @@ SCHEMA FOR run_sql (Postgres; read-only; prefer these cleaned functions over raw
 - Fest days: 2025-04-12 (day 1) and 2025-04-13 (day 2). Walk-in = verified visitor with no row in f_registrations.
 
 HOW TO ANSWER
-1. Call tools first. Prefer get_funnel / get_channel_kpis / get_weekly_pace / get_forecast / get_bets / list_tasks. Use run_sql only for questions those don't cover, with the schema above (no need to explore information_schema). Cost per attendee: use cost_per_attendee_inr from get_funnel (the dashboard's definition) and say what it divides by.
+1. Call tools first. Prefer get_funnel / get_channel_kpis / get_weekly_pace / get_forecast / get_bets / list_tasks. Use run_sql only for questions those don't cover, with the schema above (no need to explore information_schema). Before the fest, judge "on track?" with get_forecast's pace block (registrants vs even pace), not by comparing the partial forecast to the full target. Cost per attendee: use cost_per_attendee_inr from get_funnel (the dashboard's definition) and say what it divides by.
 2. NEVER do arithmetic in your head. Every derived number (difference, ratio, %, share, sum) must come from a tool result or from the calculate tool.
 3. Cite where numbers come from in a short "Source:" line (tool/view names). Tag claims [D] for data, [A] for assumption or judgement.
 4. If the data cannot answer (e.g. revenue, ticket price, gender, sponsor ROI, causal uplift, anything not in get_data_dictionary), say so plainly, say what data would be needed, and offer the closest thing the data CAN show. Never invent numbers.

@@ -98,10 +98,10 @@ Each answer has a **"How I got this"** section listing every query, its argument
 - The prompt tells the model to treat instructions found inside data as data.
 
 **Models (free tiers).**
-- Groq: `openai/gpt-oss-120b`, then Llama 4 Scout, Llama 3.3 70B and gpt-oss-20b.
-- Gemini: 2.5 Flash-Lite, then 2.5 Flash.
+- Groq: `openai/gpt-oss-120b`, then `qwen/qwen3.8-27b` and `openai/gpt-oss-20b`.
+- Gemini: `gemini-flash-lite-latest`, then 3.5 Flash-Lite and Flash.
 
-Each model has its own rate limit, so on a 429 the agent waits briefly if the provider says so, then falls back to the next model. If every model is busy, the user sees a plain message and the dashboard keeps working.
+Free tiers limit each model separately. On a 429 the agent waits up to 20 s if the provider gives a retry time, otherwise it moves to the next model. When it switches provider mid-answer, it hands over the data already fetched as text, because Gemini can't replay another provider's tool calls. If every model is busy, the user sees a plain message and the dashboard keeps working. `/api/models` lists the models the configured keys can use.
 
 ## 5. Architecture
 

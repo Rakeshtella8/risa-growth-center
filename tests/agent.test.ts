@@ -44,8 +44,15 @@ describe('copilot tools (live local data)', () => {
   });
 
   it('forecast compares against the chosen target', async () => {
-    const f = (await runTool(ctx, 'get_forecast', { target_key: '2025_goal' })) as { gap_to_target: number }[];
-    expect(f[0].gap_to_target).toBe(-150);
+    const f = (await runTool(ctx, 'get_forecast', { target_key: '2025_goal' })) as { gap_to_target: number };
+    expect(f.gap_to_target).toBe(-150);
+  });
+
+  it('mid-campaign forecast reports pace against an even weekly plan', async () => {
+    const f = (await runTool({ ...ctx, asOf: '2025-03-10 00:00:00' }, 'get_forecast', { target_key: '2026_base' })) as { pace: { expected_registrants_by_now_even_pace: number; registrants_so_far: number; pace_pct: number } };
+    expect(f.pace.expected_registrants_by_now_even_pace).toBe(1818); // 3,117 / 12 x 7 weeks
+    expect(f.pace.registrants_so_far).toBe(1348);
+    expect(f.pace.pace_pct).toBe(74.1);
   });
 
   it('what-if reproduces the 2026 channel engine', async () => {

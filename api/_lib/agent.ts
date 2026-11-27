@@ -72,5 +72,5 @@ function flatten(messages: ChatMsg[]) {
 export function tidy(s: string) {
   const cut = s.search(/<\|[a-z_]+\|>|【(?:commentary|analysis|final)\b/);
   if (cut >= 0) s = s.slice(0, cut);
-  return s.replace(/【\s*([DA])\s*】/g, '[$1]').trim();
+  return s.replace(/【\s*([DA])\s*】/g, '[$1]').replace(/【([^】]{1,60})】/g, ' ($1)').trim();
 }

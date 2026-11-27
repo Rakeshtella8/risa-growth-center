@@ -16,7 +16,7 @@ export interface Ctx {
 type Json = Record<string, unknown>;
 
 export const toolDefs = [
-  fn('get_funnel', 'Whole-event funnel at the current as-of date: identified people, registrants, confirmed, cancelled, waitlisted, verified visitors, walk-ins, confirmed no-shows, show rate, marketing spend. Each metric comes with its definition, plus leaks_ranked (each leak with the attendees it could add back) and reading_notes. Use leaks_ranked for "biggest gap / which leak first".', {}),
+  fn('get_funnel', 'Whole-event funnel at the current as-of date: identified people, registrants, confirmed, cancelled, waitlisted, verified visitors, walk-ins, confirmed no-shows, show rate, marketing spend, capacity, QR passes issued/opened (qr_passes_downloaded), confirmed_pass_not_opened, qr_open_rate_pct, reminders sent, participants/spectators. Use it for ANY count; never count rows with run_sql when a metric exists. Each metric comes with its definition, plus leaks_ranked (each leak with the attendees it could add back) and reading_notes. Use leaks_ranked for "biggest gap / which leak first".', {}),
   fn('get_channel_trend', 'Weekly registrations, spend and cost per registrant for each campaign (week_start Monday). Use for trends and what changed week on week.', {
     campaign_id: { type: 'string', description: 'Optional, e.g. C02' },
   }),
@@ -26,7 +26,7 @@ export const toolDefs = [
     target_key: { type: 'string', enum: ['2025_goal', '2026_base', '2026_stretch'], description: 'Optional. Defaults to the target selected in the app.' },
   }),
   fn('get_pace_vs_last_year', 'This fest year week by week (campaign week 1 = campaign start) against the same campaign week last year and an even plan to the selected target: registrations per week, cumulative this year, cumulative last year, plan cumulative. Use for "are we ahead of last year?"', {}),
-  fn('get_attendees', 'Attendee management list for this fest year: people with their latest status (confirmed, waitlisted, cancelled, interested, lead, walk-in), role, sport, college, source campaign, pass sent/opened, reminders, checked in. Filter by status or search text. Returns at most 20 rows plus the total; use get_funnel for counts.', {
+  fn('get_attendees', 'Attendee management list for this fest year: people with their latest status (confirmed, waitlisted, cancelled, interested, lead, walk-in), role, sport, college, source campaign, pass sent/opened, reminders, checked in. Filter by status or search text. Returns at most 20 rows plus the total. For counts (how many confirmed, passes opened, waitlisted) use get_funnel, not this list.', {
     status: { type: 'string', enum: ['all', 'confirmed', 'no_pass', 'waitlisted', 'cancelled', 'interested', 'lead', 'attended', 'walk-in'] },
     search: { type: 'string', description: 'Optional name, college or pass code' },
   }),
@@ -76,6 +76,10 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
       const r1 = (x: number) => Math.round(x * 10) / 10;
       if (v('registrants')) rows.push({ metric: 'cost_per_registrant_inr', value: r1(v('marketing_spend_inr') / v('registrants')), definition: 'Marketing spend / external registrants' });
       if (v('registered_visitors')) rows.push({ metric: 'cost_per_attendee_inr', value: r1(v('marketing_spend_inr') / v('registered_visitors')), definition: 'Dashboard definition: marketing spend / campaign-driven (registered) verified visitors; walk-ins excluded because no campaign drove them' });
+      if (v('qr_passes_issued')) {
+        rows.push({ metric: 'confirmed_pass_not_opened', value: Math.max(v('confirmed') - v('qr_passes_downloaded'), 0), definition: 'Confirmed (latest status) minus people who opened their QR pass: likeliest no-shows (Bet 1)' });
+        rows.push({ metric: 'qr_open_rate_pct', value: v('confirmed') ? r1((100 * v('qr_passes_downloaded')) / v('confirmed')) : 0, definition: 'QR passes opened / confirmed. Bet 1 scales at 85%' });
+      }
       // Leaks ranked by attendees they could add back. Walk-ins are NOT a leak: they add attendees.
       const sr = v('show_rate_pct') / 100 || 0.688;
       const leaks = [

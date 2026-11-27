@@ -110,7 +110,7 @@ export default function DataScreen() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-bold text-slate-900">Data: edit, upload, reset</h1>
-        <p className="text-sm text-slate-500">This is the raw 2025 data, with duplicates and internal/test people left in. The metric layer cleans it on every read, so edits here flow straight into every chart and every copilot answer. Use <b>Reset data</b> (top bar) to restore the original.</p>
+        <p className="text-sm text-slate-500">These are the raw tables for every fest year: the 2025 data as RISA supplied it (duplicates and internal/test people left in), the simulated 2026 weeks [A] and everything you add on the Attendees and Gate screens. The metric layer cleans it on every read, so edits here flow straight into every chart and every copilot answer. Use <b>Reset data</b> (top bar) to restore the original.</p>
       </div>
       <Section title={`${cfg.label} · ${n0(data?.count ?? 0)} rows`}
         right={<div className="flex flex-wrap gap-2 text-xs">

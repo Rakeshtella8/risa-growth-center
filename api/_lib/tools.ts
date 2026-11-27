@@ -140,7 +140,7 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
       return { as_of: ctx.asOf ?? 'all data', bets: (data as Bet[]).map((b) => {
         const e = evaluateBet(b, kpis as ChannelKpi[], weeks as ChannelWeek[]);
         return { bet_id: b.bet_id, name: b.name, owner_name: b.owner_name, status: b.status, kpi_name: b.kpi_name,
-          kpi_value: e.value, kpi_unit: e.unit, kpi_source: e.source, verdict: e.verdict, thresholds: e.why,
+          kpi_value: e.value, kpi_unit: e.unit, kpi_source: e.source === 'manual reading' && /simulated/i.test(b.latest_kpi_note ?? '') ? 'SIMULATED sample reading, not real data [A]' : e.source, verdict: e.verdict, thresholds: e.why,
           scale_if: b.scale_if, change_if: b.change_if, stop_if: b.stop_if, base_attendees: b.base_attendees, stretch_attendees: b.stretch_attendees,
           budget_inr: b.budget_inr, score: b.score, open_tasks: b.open_tasks };
       }) };

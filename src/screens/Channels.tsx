@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useApp, useData } from '../lib/app';
 import { rpc, db, audit } from '../lib/supabase';
@@ -12,17 +12,17 @@ const rate = (a: number | undefined, b: number | undefined) => (a !== undefined 
 const wkLabel = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 
 export default function Channels() {
-  const { asOf, target } = useApp();
+  const { asOf, target, edition } = useApp();
   const { data, error } = useData(async () => {
     const [kpis, weekly] = await Promise.all([
-      rpc<ChannelKpi[]>('f_channel_kpis', { p_as_of: asOf }),
-      rpc<ChannelWeek[]>('f_channel_weekly', { p_as_of: asOf }).catch(() => [] as ChannelWeek[]), // needs SQL update 2
+      rpc<ChannelKpi[]>('f_channel_kpis', { p_as_of: asOf, p_edition: edition }),
+      rpc<ChannelWeek[]>('f_channel_weekly', { p_as_of: asOf, p_edition: edition }).catch(() => [] as ChannelWeek[]),
     ]);
     return { kpis, weekly };
   }, [asOf]);
   const { data: full } = useData(async () => {
     const [kpis, camps, targets] = await Promise.all([
-      rpc<ChannelKpi[]>('f_channel_kpis', { p_as_of: null }),
+      rpc<ChannelKpi[]>('f_channel_kpis', { p_as_of: null, p_edition: '2025' }),
       db.from('campaigns').select('campaign_id,budget_2026_inr,status').then((r) => (r.data ?? []) as { campaign_id: string; budget_2026_inr: number | null; status: string }[]),
       db.from('plan_targets').select('*').then((r) => (r.data ?? []) as PlanTarget[]),
     ]);
@@ -105,7 +105,7 @@ function ReachFunnel({ kpis }: { kpis: ChannelKpi[] }) {
               <tr key={k.campaign_id} className="border-b border-slate-100">
                 <td className="td font-medium">{k.campaign_name}</td>
                 <td className="td">{n0(k.impressions)}</td><td className="td">{n0(k.clicks)}</td><td className="td">{n0(k.sessions)}</td><td className="td">{n0(k.registration_starts)}</td>
-                {all[i].map((v, j) => <span key={j} style={{ display: 'contents' }}>{cell(v, minIdx[j] === i && rows.length > 1)}</span>)}
+                {all[i].map((v, j) => <Fragment key={j}>{cell(v, minIdx[j] === i && rows.length > 1)}</Fragment>)}
               </tr>
             ))}
             <tr className="bg-slate-50 font-semibold">

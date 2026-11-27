@@ -21,7 +21,7 @@ export default async function handler(req: { method?: string; body?: unknown }, 
 async function handle(req: { method?: string; body?: unknown }, res: Res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   const body = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) as {
-    messages?: { role: 'user' | 'assistant'; content: string }[]; asOf?: string | null; target?: string; sessionId?: string;
+    messages?: { role: 'user' | 'assistant'; content: string }[]; asOf?: string | null; target?: string; sessionId?: string; edition?: string;
   };
   const messages = (body.messages ?? []).filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
     .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
@@ -34,7 +34,13 @@ async function handle(req: { method?: string; body?: unknown }, res: Res) {
   const t = (tr ?? [])[0] as { label: string; registrants: number; verified_attendees: number; budget_inr: number } | undefined;
   const fmt = (n: number) => new Intl.NumberFormat('en-IN').format(n);
   const label = t ? `${t.label} (${fmt(t.verified_attendees)} verified attendees, ${fmt(t.registrants)} registrants, Rs ${fmt(t.budget_inr)} budget)` : TARGET_LABELS[target];
-  const result = await runAgent({ db, asOf, target }, messages, label);
+  const edition = body.edition === '2025' ? '2025' : '2026';
+  const { data: er } = await db.from('editions').select('*').eq('edition', edition);
+  const e = (er ?? [])[0] as { label: string; campaign_start: string; fest_day1: string; fest_day2: string; capacity: number; demo_clock: string; window_start: string; window_end: string } | undefined;
+  const ist = new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 19).replace('T', ' ');
+  const today = e ? (ist >= e.window_start && ist <= e.window_end ? ist : String(e.demo_clock).replace('T', ' ').slice(0, 19)) : null;
+  const edInfo = e ? `${e.label} (edition '${edition}'): campaign from ${e.campaign_start}, fest ${e.fest_day1} and ${e.fest_day2}, capacity ${fmt(e.capacity)} confirmed places; "today" in this fest year = ${today}${edition === '2026' ? '. The 2026 rows up to the demo date are SIMULATED from the 2025 campaign [A] (is_simulated = true); anything the team entered since is real' : ''}.` : `edition ${edition}`;
+  const result = await runAgent({ db, asOf, target, edition }, messages, label, edInfo);
   try {
     await db.from('chat_log').insert([
       { session_id: body.sessionId ?? null, role: 'user', content: messages[messages.length - 1].content },

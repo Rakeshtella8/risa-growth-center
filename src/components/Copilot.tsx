@@ -10,6 +10,8 @@ interface Msg { role: 'user' | 'assistant'; content: string; trace?: TraceItem[]
 
 const STARTERS = [
   'Are we on track against the selected target, and what is the biggest gap?',
+  'Are we ahead of or behind the same week last year? Which channel explains it?',
+  'Who should we chase this week: waitlist, confirmed without a pass, or leads?',
   'Which channel should we cut, and where should that money go?',
   'Move ₹10k from Creators to Referrals: what happens?',
   'What was the ticket revenue?',
@@ -19,7 +21,7 @@ const STARTERS = [
 function loadMsgs(): Msg[] { try { return JSON.parse(sessionStorage.getItem('rgc_chat') || '[]'); } catch { return []; } }
 
 export default function Copilot({ onClose }: { onClose: () => void }) {
-  const { asOf, target, refresh, pendingQuestion, clearPending, targets } = useApp();
+  const { asOf, target, refresh, pendingQuestion, clearPending, targets, edition, ed, today } = useApp();
   const [msgs, setMsgs] = useState<Msg[]>(loadMsgs);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -27,7 +29,7 @@ export default function Copilot({ onClose }: { onClose: () => void }) {
   useEffect(() => { try { sessionStorage.setItem('rgc_chat', JSON.stringify(msgs.slice(-40))); } catch { /* ignore */ } end.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
   useEffect(() => { if (pendingQuestion && !busy) { send(pendingQuestion); clearPending(); } }, [pendingQuestion]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ctxLabel = `${asOfLabel(asOf)} · ${targets.find((t) => t.key === target)?.label}`;
+  const ctxLabel = `${ed.label} · ${asOfLabel(asOf, today)} · ${targets.find((t) => t.key === target)?.label}`;
 
   async function send(text: string) {
     const q = text.trim();
@@ -37,7 +39,7 @@ export default function Copilot({ onClose }: { onClose: () => void }) {
     try {
       const res = await fetch('/api/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history.filter((m) => !m.error).map((m) => ({ role: m.role, content: m.content })), asOf, target, sessionId: sessionId() }),
+        body: JSON.stringify({ messages: history.filter((m) => !m.error).map((m) => ({ role: m.role, content: m.content })), asOf, target, edition, sessionId: sessionId() }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || res.statusText);

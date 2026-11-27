@@ -8,7 +8,7 @@ import type { ChatMsg } from '../api/_lib/llm';
 
 const URL = process.env.DEV_API || 'http://localhost:54321';
 const db = createClient(URL, 'dev-anon-key', { auth: { persistSession: false } });
-const ctx: Ctx = { db, asOf: null, target: '2026_base' };
+const ctx: Ctx = { db, asOf: null, target: '2026_base', edition: '2025' };
 const fake = [{ name: 'fake', url: '', key: 'x', model: 'scripted' }];
 
 // scripted model: calls the given tools in turn, then answers with a summary of what it saw
@@ -43,6 +43,18 @@ describe('copilot tools (live local data)', () => {
     expect(f.leaks_ranked[0].attendees_if_recovered).toBe(575);
     expect(f.leaks_ranked[1].attendees_if_recovered).toBe(482);
     expect(f.leaks_ranked.some((l) => /walk/i.test(l.leak))).toBe(false);
+  });
+
+  it('2026 tools: simulated weeks vs same week last year, attendee list', async () => {
+    const c26 = { ...ctx, edition: '2026' };
+    const p = (await runTool(c26, 'get_pace_vs_last_year', {})) as { columns: string[]; rows: unknown[][] };
+    const wk7 = p.rows.find((r) => r[0] === 7)!;
+    expect(wk7[p.columns.indexOf('cumulative')]).toBe(1136);
+    expect(wk7[p.columns.indexOf('last_cumulative')]).toBe(1348);
+    const a = (await runTool(c26, 'get_attendees', { status: 'waitlisted' })) as { total: number; rows: unknown[][] };
+    const f = (await runTool(c26, 'get_funnel', {})) as { metrics: Record<string, number> };
+    expect(f.metrics.registrants).toBe(1136);
+    expect(Number(a.total)).toBe(f.metrics.waitlisted);
   });
 
   it('as-of date changes the answer', async () => {
@@ -96,7 +108,7 @@ describe('copilot tools (live local data)', () => {
 describe('agent loop', () => {
   it('runs tools, returns trace and proposals, never writes tasks itself', async () => {
     const before = await db.from('tasks').select('id');
-    const r = await runAgent(ctx, [{ role: 'user', content: 'Move 10k from creators to referrals' }], 'base',
+    const r = await runAgent(ctx, [{ role: 'user', content: 'Move 10k from creators to referrals' }], 'base', '',
       scripted([{ name: 'what_if_budget', args: { spend: { C03: 49000, C05: 29000 } } },
                 { name: 'propose_task', args: { title: 'Shift Rs 10k Creators -> Referrals', description: 'x' } }]), fake);
     expect(r.trace.map((t) => t.tool)).toEqual(['what_if_budget', 'propose_task']);
@@ -106,7 +118,7 @@ describe('agent loop', () => {
   });
 
   it('reports tool errors to the model instead of crashing', async () => {
-    const r = await runAgent(ctx, [{ role: 'user', content: 'x' }], 'base', scripted([{ name: 'run_sql', args: { query: 'drop table tasks' } }]), fake);
+    const r = await runAgent(ctx, [{ role: 'user', content: 'x' }], 'base', '', scripted([{ name: 'run_sql', args: { query: 'drop table tasks' } }]), fake);
     expect(r.trace[0].ok).toBe(false);
     expect(r.answer).toContain('Only SELECT');
   });
@@ -118,7 +130,7 @@ describe('agent loop', () => {
       if (p.name === 'first') { const e = new Error('rate') as Error & { status: number }; e.status = 429; throw e; }
       return { role: 'assistant', content: 'from second' };
     };
-    const r = await runAgent(ctx, [{ role: 'user', content: 'hi' }], 'base', flaky,
+    const r = await runAgent(ctx, [{ role: 'user', content: 'hi' }], 'base', '', flaky,
       [{ name: 'first', url: '', key: 'x', model: 'a' }, { name: 'second', url: '', key: 'y', model: 'b' }]);
     expect(r.answer).toBe('from second');
     expect(r.model).toBe('second:b');
@@ -126,7 +138,7 @@ describe('agent loop', () => {
   });
 
   it('answers honestly when no provider is configured', async () => {
-    const r = await runAgent(ctx, [{ role: 'user', content: 'hi' }], 'base', scripted([]), []);
+    const r = await runAgent(ctx, [{ role: 'user', content: 'hi' }], 'base', '', scripted([]), []);
     expect(r.error).toBe('no_provider');
   });
 });

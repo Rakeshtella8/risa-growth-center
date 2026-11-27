@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useApp, AS_OF_STEPS, TargetKey } from './lib/app';
+import { useApp, asOfSteps, TargetKey } from './lib/app';
 import { asOfLabel } from './lib/format';
 import { rpc, audit } from './lib/supabase';
 import Overview from './screens/Overview';
@@ -7,19 +7,33 @@ import Channels from './screens/Channels';
 import Bets from './screens/Bets';
 import Execution from './screens/Execution';
 import DataScreen from './screens/DataScreen';
+import Attendees from './screens/Attendees';
+import Gate from './screens/Gate';
+import { RegisterPage, PassPage } from './screens/Public';
 import Copilot from './components/Copilot';
 
 const TABS = [
   { id: 'overview', label: 'Overview', hint: 'Measure' },
   { id: 'channels', label: 'Channels', hint: 'Diagnose' },
+  { id: 'attendees', label: 'Attendees', hint: 'Manage people' },
+  { id: 'gate', label: 'Gate', hint: 'Fest-day check-in' },
   { id: 'bets', label: 'Bets', hint: 'Decide' },
   { id: 'execution', label: 'Campaigns & tasks', hint: 'Execute' },
   { id: 'data', label: 'Data', hint: 'Edit / reset' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
+// Public pages (no dashboard chrome): #register?c=C04 and #pass/<registration id>
 export default function App() {
-  const { asOf, setAsOf, target, setTarget, copilotOpen, setCopilotOpen, refresh, targets } = useApp();
+  const [hash, setHash] = useState(location.hash);
+  useEffect(() => { const on = () => setHash(location.hash); window.addEventListener('hashchange', on); return () => window.removeEventListener('hashchange', on); }, []);
+  if (hash.startsWith('#register')) return <RegisterPage />;
+  if (hash.startsWith('#pass/')) return <PassPage id={decodeURIComponent(hash.slice(6))} />;
+  return <Dashboard />;
+}
+
+function Dashboard() {
+  const { asOf, setAsOf, target, setTarget, copilotOpen, setCopilotOpen, refresh, targets, edition, setEdition, editions, ed, today } = useApp();
   const [tab, setTab] = useState<TabId>(() => (TABS.find((t) => '#' + t.id === location.hash)?.id ?? 'overview'));
   const [resetting, setResetting] = useState(false);
   useEffect(() => { history.replaceState(null, '', '#' + tab); }, [tab]);
@@ -28,10 +42,11 @@ export default function App() {
     window.addEventListener('hashchange', on);
     return () => window.removeEventListener('hashchange', on);
   }, []);
-  const idx = AS_OF_STEPS.indexOf(asOf);
+  const steps = asOfSteps(ed, today);
+  const idx = steps.indexOf(asOf);
 
   async function reset() {
-    if (!window.confirm('Restore the original 2025 dataset and the original targets? Your data edits will be undone (tasks and KPI readings are kept).')) return;
+    if (!window.confirm('Restore the original data (2025 dataset + simulated 2026 weeks), targets and fest settings? Your data edits, registrations and check-ins will be undone (tasks and KPI readings are kept).')) return;
     setResetting(true);
     try { await rpc('reset_to_original'); await audit('*', 'reset_to_original', null, null, null); refresh(); }
     catch (e) { alert('Reset failed: ' + (e as Error).message); }
@@ -55,11 +70,16 @@ export default function App() {
             ))}
           </nav>
           <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
-            <label className="flex items-center gap-2" title="Replay the 2025 campaign: every number and the copilot use data up to this date">
+            <label className="flex items-center gap-2" title="Which fest year you are working on">
+              <select value={edition} onChange={(e) => setEdition(e.target.value)} className="rounded-md bg-white/10 px-2 py-1 font-semibold text-white" aria-label="Fest year">
+                {editions.map((e) => <option key={e.edition} value={e.edition} className="text-slate-800">{e.label}</option>)}
+              </select>
+            </label>
+            <label className="flex items-center gap-2" title="Look back: every number and the copilot use data up to this date. Right end = today.">
               <span className="text-white/70">As of</span>
-              <input type="range" min={0} max={AS_OF_STEPS.length - 1} value={idx < 0 ? AS_OF_STEPS.length - 1 : idx}
-                onChange={(e) => setAsOf(AS_OF_STEPS[Number(e.target.value)])} className="w-32 accent-white" aria-label="As-of date" />
-              <span className="w-24 font-semibold">{asOfLabel(asOf)}</span>
+              <input type="range" min={0} max={steps.length - 1} value={idx < 0 ? steps.length - 1 : idx}
+                onChange={(e) => setAsOf(steps[Number(e.target.value)])} className="w-28 accent-white" aria-label="As-of date" />
+              <span className="w-36 font-semibold">{asOfLabel(asOf, today)}</span>
             </label>
             <label className="flex items-center gap-2">
               <span className="text-white/70">Compare to</span>
@@ -80,11 +100,13 @@ export default function App() {
         <main className="min-w-0 flex-1 overflow-y-auto p-4">
           {tab === 'overview' && <Overview />}
           {tab === 'channels' && <Channels />}
+          {tab === 'attendees' && <Attendees />}
+          {tab === 'gate' && <Gate />}
           {tab === 'bets' && <Bets />}
           {tab === 'execution' && <Execution />}
           {tab === 'data' && <DataScreen />}
           <footer className="mt-8 pb-4 text-xs text-slate-400">
-            Data: CampusFest 2025 (fictional dataset supplied by RISA) · [D] data · [A] assumption · 2026 targets from the strategy model · Built by Rakesh Tella
+            Data: CampusFest 2025 (fictional dataset supplied by RISA); 2026 weeks to 8 Mar are simulated from it [A] until real 2026 data arrives · [D] data · [A] assumption · 2026 targets from the strategy model · Built by Rakesh Tella
           </footer>
         </main>
         {copilotOpen && <Copilot onClose={() => setCopilotOpen(false)} />}

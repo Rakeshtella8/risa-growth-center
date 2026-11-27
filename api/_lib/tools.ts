@@ -8,8 +8,9 @@ import type { Bet, ChannelKpi, ChannelWeek } from '../../src/lib/types.js';
 
 export interface Ctx {
   db: SupabaseClient;
-  asOf: string | null;      // 'YYYY-MM-DD HH:mm:ss' or null = all data
+  asOf: string | null;      // 'YYYY-MM-DD HH:mm:ss' or null = today in the fest year
   target: string;           // 2025_goal | 2026_base | 2026_stretch
+  edition?: string;         // fest year: '2026' (live) or '2025' (replay); default 2026
 }
 
 type Json = Record<string, unknown>;
@@ -23,6 +24,11 @@ export const toolDefs = [
   fn('get_weekly_pace', 'Weekly (Mon-Sun) registrations and spend with cumulative totals and cost per registrant, up to the as-of date.', {}),
   fn('get_forecast', 'Forecast vs the selected comparison target (or the one given). Before the fest: forecast_attendees counts only people already registered; projected_attendees adds the recent weekly run-rate for the weeks left [A]; pace_pct compares registrants with an even plan to date. Also gap, budget, spend so far.', {
     target_key: { type: 'string', enum: ['2025_goal', '2026_base', '2026_stretch'], description: 'Optional. Defaults to the target selected in the app.' },
+  }),
+  fn('get_pace_vs_last_year', 'This fest year week by week (campaign week 1 = campaign start) against the same campaign week last year and an even plan to the selected target: registrations per week, cumulative this year, cumulative last year, plan cumulative. Use for "are we ahead of last year?"', {}),
+  fn('get_attendees', 'Attendee management list for this fest year: people with their latest status (confirmed, waitlisted, cancelled, interested, lead, walk-in), role, sport, college, source campaign, pass sent/opened, reminders, checked in. Filter by status or search text. Returns at most 20 rows plus the total; use get_funnel for counts.', {
+    status: { type: 'string', enum: ['all', 'confirmed', 'no_pass', 'waitlisted', 'cancelled', 'interested', 'lead', 'attended', 'walk-in'] },
+    search: { type: 'string', description: 'Optional name, college or pass code' },
   }),
   fn('get_targets', 'All comparison targets (2025 goal, 2026 base, 2026 stretch) with identified, registrants, verified attendees, budget and source.', {}),
   fn('get_bets', 'The 5 growth bets with KPI, base/stretch attendee impact, budget, owner, score, status, scale/change/stop thresholds, latest KPI reading and open tasks.', {}),
@@ -62,9 +68,10 @@ async function rpc(ctx: Ctx, name: string, args: Json) {
 
 export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unknown> {
   const p_as_of = ctx.asOf;
+  const p_edition = ctx.edition ?? '2026';
   switch (name) {
     case 'get_funnel': {
-      const rows = (await rpc(ctx, 'f_funnel', { p_as_of })) as { metric: string; value: number; definition?: string }[];
+      const rows = (await rpc(ctx, 'f_funnel', { p_as_of, p_edition })) as { metric: string; value: number; definition?: string }[];
       const v = (k: string) => Number(rows.find((r) => r.metric === k)?.value ?? 0);
       const r1 = (x: number) => Math.round(x * 10) / 10;
       if (v('registrants')) rows.push({ metric: 'cost_per_registrant_inr', value: r1(v('marketing_spend_inr') / v('registrants')), definition: 'Marketing spend / external registrants' });
@@ -91,7 +98,7 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
         ] };
     }
     case 'get_channel_kpis': {
-      const rows = (await rpc(ctx, 'f_channel_kpis', { p_as_of })) as Record<string, unknown>[];
+      const rows = (await rpc(ctx, 'f_channel_kpis', { p_as_of, p_edition })) as Record<string, unknown>[];
       const { data: owners } = await ctx.db.from('campaigns').select('campaign_id,owner_name');
       const totSpend = rows.reduce((a, r) => a + Number(r.spend_inr ?? 0), 0);
       const totVis = rows.reduce((a, r) => a + Number(r.visitors ?? 0), 0);
@@ -105,14 +112,14 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
         columns, rows: full.map((r) => columns.map((c) => (r as Record<string, unknown>)[c])) };
     }
     case 'get_weekly_pace':
-      return { as_of: ctx.asOf ?? 'all data', rows: await rpc(ctx, 'f_weekly_pace', { p_as_of }) };
+      return { as_of: ctx.asOf ?? 'all data', rows: await rpc(ctx, 'f_weekly_pace', { p_as_of, p_edition }) };
     case 'get_channel_trend': {
-      const rows = (await rpc(ctx, 'f_channel_weekly', { p_as_of })) as { campaign_id: string }[];
+      const rows = (await rpc(ctx, 'f_channel_weekly', { p_as_of, p_edition })) as { campaign_id: string }[];
       return { as_of: ctx.asOf ?? 'all data', rows: args.campaign_id ? rows.filter((r) => r.campaign_id === args.campaign_id) : rows };
     }
     case 'get_forecast': {
       const key = (args.target_key as string) || ctx.target;
-      const fc = (await rpc(ctx, 'f_forecast', { p_as_of, p_target: key })) as Record<string, unknown> | Record<string, unknown>[];
+      const fc = (await rpc(ctx, 'f_forecast', { p_as_of, p_target: key, p_edition })) as Record<string, unknown> | Record<string, unknown>[];
       const f = (Array.isArray(fc) ? fc[0] : fc) ?? {};
       if (!ctx.asOf || Number(f.open_registrants ?? 0) === 0 || 'pace_pct' in f) return f; // update 2 computes projection + pace in SQL
       // Mid-campaign: the forecast only counts people registered so far, so also report pace against an even
@@ -127,6 +134,17 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
         registrants_so_far: regs, pace_pct: expected ? Math.round(regs / expected * 1000) / 10 : null,
         how_to_read: 'pace_pct >= 100 means on track for the registrant target at an even weekly pace [A]; forecast_attendees excludes registrations still to come' } };
     }
+    case 'get_pace_vs_last_year': {
+      const rows = (await rpc(ctx, 'f_pace_compare', { p_as_of, p_edition, p_target: ctx.target })) as Json[];
+      return { edition: p_edition, as_of: ctx.asOf ?? 'today', note: 'registrations/cumulative are null for weeks after today; last_* = same campaign week of the baseline year [D]; plan_cumulative = even pace to the target [A]',
+        columns: ['week_no', 'week_start', 'registrations', 'cumulative', 'last_registrations', 'last_cumulative', 'plan_cumulative'],
+        rows: rows.map((r) => [r.week_no, r.week_start, r.registrations, r.cumulative, r.last_registrations, r.last_cumulative, r.plan_cumulative]) };
+    }
+    case 'get_attendees': {
+      const rows = (await rpc(ctx, 'f_attendees', { p_edition, p_q: args.search ?? null, p_status: args.status ?? 'all', p_limit: 20, p_offset: 0 })) as Json[];
+      const cols = ['person_name', 'status', 'role', 'sport', 'college', 'campaign_id', 'registration_id', 'registered_at', 'pass_issued', 'pass_opened', 'reminders', 'attended', 'is_simulated'];
+      return { edition: p_edition, total: rows[0]?.total ?? 0, returned: rows.length, columns: cols, rows: rows.map((r) => cols.map((c) => r[c])) };
+    }
     case 'get_targets': {
       const { data, error } = await ctx.db.from('plan_targets').select('*');
       if (error) throw new Error(error.message);
@@ -135,7 +153,7 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
     case 'get_bets': {
       // Same verdict logic as the Bets screen: bets 2 and 3 read their KPI live from channel data,
       // bets 1, 4 and 5 use the latest KPI reading the team entered.
-      const [{ data, error }, kpis, weeks] = await Promise.all([ctx.db.from('v_bet_status').select('*'), rpc(ctx, 'f_channel_kpis', { p_as_of }), rpc(ctx, 'f_channel_weekly', { p_as_of }).catch(() => [])]);
+      const [{ data, error }, kpis, weeks] = await Promise.all([ctx.db.from('v_bet_status').select('*'), rpc(ctx, 'f_channel_kpis', { p_as_of, p_edition }), rpc(ctx, 'f_channel_weekly', { p_as_of, p_edition }).catch(() => [])]);
       if (error) throw new Error(error.message);
       return { as_of: ctx.asOf ?? 'all data', bets: (data as Bet[]).map((b) => {
         const e = evaluateBet(b, kpis as ChannelKpi[], weeks as ChannelWeek[]);
@@ -158,14 +176,15 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
       if (error) throw new Error(error.message);
       const byTable: Record<string, string[]> = {};
       for (const r of data as { table_name: string; column_name: string }[]) (byTable[r.table_name] ??= []).push(r.column_name);
-      return { tables: byTable, functions: ['f_funnel(p_as_of)', 'f_channel_kpis(p_as_of)', 'f_weekly_pace(p_as_of)', 'f_forecast(p_as_of, p_target)', 'f_registrations(p_as_of)', 'f_visitors(p_as_of)', 'f_spend(p_as_of)'], views: ['c_people', 'c_ext_people', 'v_funnel', 'v_channel_kpis', 'v_weekly_pace', 'v_forecast', 'v_bet_status'] };
+      return { tables: byTable, functions: ['f_funnel(p_as_of, p_edition)', 'f_channel_kpis(p_as_of, p_edition)', 'f_weekly_pace(p_as_of, p_edition)', 'f_pace_compare(p_as_of, p_edition, p_target)', 'f_forecast(p_as_of, p_target, p_edition)', 'f_registrations(p_as_of, p_edition)', 'f_visitors(p_as_of, p_edition)', 'f_spend(p_as_of, p_edition)', 'f_people(p_as_of, p_edition)', 'f_attendees(p_edition, p_q, p_status, p_limit, p_offset)'], views: ['c_people', 'c_ext_people', 'v_bet_status'],
+        note: 'Rows of every fest year live in the same tables; the functions filter to one edition by date window (editions table). Always pass the edition.' };
     }
     case 'run_sql':
       return await rpc(ctx, 'copilot_query', { q: String(args.query ?? '') });
     case 'calculate':
       return { expression: args.expression, result: evaluate(String(args.expression ?? '')) };
     case 'what_if_budget': {
-      const kpis = (await rpc(ctx, 'f_channel_kpis', { p_as_of: null })) as Json[];
+      const kpis = (await rpc(ctx, 'f_channel_kpis', { p_as_of: null, p_edition: '2025' })) as Json[];
       const base: ChannelBase[] = kpis.map((k) => ({
         campaign_id: String(k.campaign_id), campaign_name: String(k.campaign_name),
         spend_2025: Number(k.spend_inr), registrants_2025: Number(k.registrants),
@@ -176,7 +195,7 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
       const after = projectPlan(base, spend);
       const r1 = (x: number) => Math.round(x * 10) / 10;
       return {
-        assumption: `Spend above the 2025 level buys registrants at ${MARGINAL_MULT}x the 2025 average cost; cuts scale down proportionally; walk-ins fixed at 125 [A]. Baseline = current data.`,
+        assumption: `Spend above the 2025 level buys registrants at ${MARGINAL_MULT}x the 2025 average cost; cuts scale down proportionally; walk-ins fixed at 125 [A]. Baseline = the full 2025 campaign.`,
         before: { total_spend: before.totalSpend, registrants: r1(before.registrants), attendees: r1(before.attendees) },
         after: { total_spend: after.totalSpend, registrants: r1(after.registrants), attendees: r1(after.attendees) },
         delta: { spend: after.totalSpend - before.totalSpend, registrants: r1(after.registrants - before.registrants), attendees: r1(after.attendees - before.attendees) },

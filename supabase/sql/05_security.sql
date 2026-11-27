@@ -17,7 +17,7 @@ revoke select on chat_log from anon, authenticated;
 -- editable through the app (Campaigns & tasks, Data screen, settings)
 grant insert, update, delete on tasks, bet_kpi_readings, daily_marketing, checkins, registrations,
   registration_history, people, interactions to anon, authenticated;
-grant update on campaigns, bets, app_settings, plan_targets to anon, authenticated;
+grant update on campaigns, bets, app_settings, plan_targets, editions to anon, authenticated;
 grant insert on campaigns to anon, authenticated;
 grant insert on audit_log, chat_log to anon, authenticated;
 grant usage, select on all sequences in schema public to anon, authenticated;
@@ -34,7 +34,7 @@ begin
       execute format('create policy demo_read on public.%I for select to anon, authenticated, copilot_ro using (true)', t);
     end if;
     if t in ('tasks','bet_kpi_readings','daily_marketing','checkins','registrations','registration_history',
-             'people','interactions','campaigns','bets','app_settings','audit_log','chat_log','plan_targets') then
+             'people','interactions','campaigns','bets','app_settings','audit_log','chat_log','plan_targets','editions') then
       execute format('create policy demo_write on public.%I for all to anon, authenticated using (true) with check (true)', t);
     end if;
   end loop;
@@ -45,9 +45,21 @@ end $$;
 
 -- 2. Function privileges ------------------------------------------------------
 revoke execute on all functions in schema public from public, anon, authenticated;
-grant execute on function cfg_as_of(), f_registrations(timestamp), f_visitors(timestamp), f_spend(timestamp),
-  f_funnel(timestamp), f_channel_kpis(timestamp), f_weekly_pace(timestamp), f_forecast(timestamp, text), f_channel_weekly(timestamp)
+-- read functions (metrics) and the helpers they call (functions run with the caller's rights)
+grant execute on function cfg_as_of(), ed(text), ed_clock(text), ed_cut(timestamp, text), ed_suffix(text),
+  f_registrations(timestamp, text), f_visitors(timestamp, text), f_spend(timestamp, text), f_people(timestamp, text),
+  f_funnel(timestamp, text), f_channel_kpis(timestamp, text), f_weekly_pace(timestamp, text), f_channel_weekly(timestamp, text),
+  f_pace_compare(timestamp, text, text), f_forecast(timestamp, text, text),
+  f_attendees(text, text, text, int, int), f_person_timeline(text), f_gate_today(text),
+  reg_status(text, text), confirmed_count(text), gate_open(editions)
   to anon, authenticated;
+-- attendee actions used by the app (write only to tables anon may already edit)
+grant execute on function new_id(text), register_person(text, text, text, text, text, text),
+  set_registration_status(text, text, text), release_waitlist(text, int), log_touch(text, text, text, text),
+  bulk_touch(text, text), check_in(text, text, text), walk_in(text, text, text), set_demo_clock(timestamp, text),
+  remove_simulated()
+  to anon, authenticated;
+-- copy_table() and seed_simulated_2026() stay owner-only
 
 alter function reset_to_original() security definer set search_path = public;
 grant execute on function reset_to_original() to anon, authenticated;
@@ -69,8 +81,12 @@ grant copilot_ro to current_user;   -- needed to hand function ownership to the 
 grant usage on schema public to copilot_ro;
 grant select on all tables in schema public to copilot_ro;
 revoke select on chat_log, audit_log from copilot_ro;
-grant execute on function cfg_as_of(), f_registrations(timestamp), f_visitors(timestamp), f_spend(timestamp),
-  f_funnel(timestamp), f_channel_kpis(timestamp), f_weekly_pace(timestamp), f_forecast(timestamp, text), f_channel_weekly(timestamp)
+grant execute on function cfg_as_of(), ed(text), ed_clock(text), ed_cut(timestamp, text), ed_suffix(text),
+  f_registrations(timestamp, text), f_visitors(timestamp, text), f_spend(timestamp, text), f_people(timestamp, text),
+  f_funnel(timestamp, text), f_channel_kpis(timestamp, text), f_weekly_pace(timestamp, text), f_channel_weekly(timestamp, text),
+  f_pace_compare(timestamp, text, text), f_forecast(timestamp, text, text),
+  f_attendees(text, text, text, int, int), f_person_timeline(text), f_gate_today(text),
+  reg_status(text, text), confirmed_count(text), gate_open(editions)
   to copilot_ro;
 
 create or replace function copilot_query(q text) returns json

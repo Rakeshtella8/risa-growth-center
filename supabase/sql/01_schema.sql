@@ -99,6 +99,35 @@ create table if not exists chat_log (
   id bigserial primary key, session_id text, role text, content text,
   tool_calls jsonb, model text, created_at timestamptz default now());
 
+-- Editions: each fest year is a time window over the same tables. Dates, capacity and the "today" used for
+-- the demo are settings, so a new year needs no code change. 2025 = the given dataset; 2026 = the live campaign.
+create table if not exists editions (
+  edition text primary key, label text,
+  window_start timestamp, window_end timestamp,        -- rows with timestamps in this window belong to the edition
+  campaign_start date, fest_day1 date, fest_day2 date,
+  capacity int,                                        -- confirmed places; new registrations beyond it go to the waitlist [A]
+  assumed_show_rate_pct numeric, assumed_walk_ins int, -- used for pre-event forecasts [A]
+  default_target text, baseline_edition text,          -- target to compare with; edition used as "last year"
+  demo_clock timestamp);                               -- "today" for this edition when the real date is outside its window
+insert into editions values
+ ('2025','CampusFest 2025 (replay)','2025-01-01','2025-05-31 23:59:59','2025-01-20','2025-04-12','2025-04-13',2500,68.8,125,'2025_goal',null,'2025-04-20 23:59:59'),
+ ('2026','CampusFest 2026 (live)','2026-01-01','2026-05-31 23:59:59','2026-01-19','2026-04-11','2026-04-12',3000,68.8,125,'2026_base','2025','2026-03-08 23:59:59')
+on conflict (edition) do nothing;
+alter table app_settings add column if not exists edition text not null default '2026';
+
+-- Attendee management fields
+alter table people add column if not exists college text;
+alter table registrations add column if not exists college text;
+alter table registrations add column if not exists role text;     -- participant | spectator
+alter table registrations add column if not exists sport text;
+-- Simulated rows (2026 demo weeks) are flagged so they can be removed in one click
+alter table people add column if not exists is_simulated boolean not null default false;
+alter table registrations add column if not exists is_simulated boolean not null default false;
+alter table registration_history add column if not exists is_simulated boolean not null default false;
+alter table checkins add column if not exists is_simulated boolean not null default false;
+alter table interactions add column if not exists is_simulated boolean not null default false;
+alter table daily_marketing add column if not exists is_simulated boolean not null default false;
+
 -- Twins in schema original (filled once by the seed; never edited by the app)
 create table if not exists original.event               (like public.event);
 create table if not exists original.targets             (like public.targets);
@@ -110,6 +139,30 @@ create table if not exists original.registrations       (like public.registratio
 create table if not exists original.registration_history(like public.registration_history);
 create table if not exists original.checkins            (like public.checkins);
 create table if not exists original.plan_targets        (like public.plan_targets);
+create table if not exists original.editions            (like public.editions);
+-- twins created before the attendee-management columns existed get them too
+alter table original.people add column if not exists college text;
+alter table original.registrations add column if not exists college text;
+alter table original.registrations add column if not exists role text;
+alter table original.registrations add column if not exists sport text;
+alter table original.people add column if not exists is_simulated boolean not null default false;
+alter table original.registrations add column if not exists is_simulated boolean not null default false;
+alter table original.registration_history add column if not exists is_simulated boolean not null default false;
+alter table original.checkins add column if not exists is_simulated boolean not null default false;
+alter table original.interactions add column if not exists is_simulated boolean not null default false;
+alter table original.daily_marketing add column if not exists is_simulated boolean not null default false;
+
+-- copy rows between a public table and its twin by column name (column order may differ)
+create or replace function copy_table(src text, dst text, filter text default 'true') returns void language plpgsql as $$
+declare cols text;
+begin
+  select string_agg(quote_ident(column_name), ',' order by ordinal_position) into cols
+  from information_schema.columns c
+  where c.table_schema = split_part(dst,'.',1) and c.table_name = split_part(dst,'.',2)
+    and exists (select 1 from information_schema.columns s where s.table_schema = split_part(src,'.',1)
+                and s.table_name = split_part(src,'.',2) and s.column_name = c.column_name);
+  execute format('insert into %s (%s) select %s from %s where %s', dst, cols, cols, src, filter);
+end $$;
 
 create or replace function reset_to_original() returns text language plpgsql as $$
 declare t text;
@@ -117,15 +170,19 @@ begin
   foreach t in array array['event','targets','campaigns','daily_marketing','people',
                            'interactions','registrations','registration_history','checkins'] loop
     execute format('truncate public.%I', t);
-    execute format('insert into public.%I select * from original.%I', t, t);
+    perform copy_table('original.' || t, 'public.' || t);
     if t <> 'event' then
       execute format('select setval(pg_get_serial_sequence(''public.%I'',''row_id''), greatest(coalesce((select max(row_id) from public.%I),0),1))', t, t);
     end if;
   end loop;
-  -- targets edited in the app go back to the strategy model's values
+  -- targets and edition settings edited in the app go back to the strategy model's values
   if exists (select 1 from original.plan_targets) then
     truncate public.plan_targets;
-    insert into public.plan_targets select * from original.plan_targets;
+    perform copy_table('original.plan_targets', 'public.plan_targets');
+  end if;
+  if exists (select 1 from original.editions) then
+    delete from public.editions;
+    perform copy_table('original.editions', 'public.editions');
   end if;
   update app_settings set as_of = null where id = 1;
   insert into audit_log(table_name, action) values ('*', 'reset_to_original');

@@ -2,19 +2,20 @@ import { useState } from 'react';
 import { useApp, useData } from '../lib/app';
 import { rpc, db, audit } from '../lib/supabase';
 import { n0, n1, rs } from '../lib/format';
-import { Bet, ChannelKpi, ChannelWeek } from '../lib/types';
+import { Bet, ChannelKpi, ChannelWeek, FunnelRow } from '../lib/types';
 import { evaluateBet, verdictClass, readingRange } from '../lib/bets';
 import { Section, AskButton, Loading, Tag } from '../components/ui';
 
 export default function Bets() {
-  const { asOf, refresh } = useApp();
+  const { asOf, refresh, edition } = useApp();
   const { data, error } = useData(async () => {
-    const [bets, kpis, weeks] = await Promise.all([
+    const [bets, kpis, weeks, funnel] = await Promise.all([
       db.from('v_bet_status').select('*').then((r) => { if (r.error) throw r.error; return r.data as Bet[]; }),
-      rpc<ChannelKpi[]>('f_channel_kpis', { p_as_of: asOf }),
-      rpc<ChannelWeek[]>('f_channel_weekly', { p_as_of: asOf }).catch(() => [] as ChannelWeek[]),
+      rpc<ChannelKpi[]>('f_channel_kpis', { p_as_of: asOf, p_edition: edition }),
+      rpc<ChannelWeek[]>('f_channel_weekly', { p_as_of: asOf, p_edition: edition }).catch(() => [] as ChannelWeek[]),
+      rpc<FunnelRow[]>('f_funnel', { p_as_of: asOf, p_edition: edition }),
     ]);
-    return { bets, kpis, weeks };
+    return { bets, kpis, weeks, funnel };
   }, [asOf]);
   if (!data) return <Loading error={error} />;
   const totalBase = data.bets.reduce((a, b) => a + b.base_attendees, 0);
@@ -25,19 +26,19 @@ export default function Bets() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Bets: decide</h1>
-          <p className="text-sm text-slate-500">Score = incremental attendees × confidence ÷ person-weeks [A]. Five bets add +{n0(totalBase)} (base) / +{n0(totalStretch)} (stretch) on top of 2,050.</p>
+          <p className="text-sm text-slate-500">Score = incremental attendees × confidence ÷ person-weeks [A]. Five bets add +{n0(totalBase)} (base) / +{n0(totalStretch)} (stretch) on top of 2,050. Bets 1–3 read their KPI live from the data; 4–5 from team readings.</p>
         </div>
         <AskButton q="Review all five bets against their thresholds. Which should we scale, change or stop this week, and why?" label="Scale / change / stop?" />
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        {data.bets.map((b) => <BetCard key={b.bet_id} b={b} kpis={data.kpis} weeks={data.weeks} onChange={refresh} />)}
+        {data.bets.map((b) => <BetCard key={b.bet_id} b={b} kpis={data.kpis} weeks={data.weeks} funnel={data.funnel} onChange={refresh} />)}
       </div>
     </div>
   );
 }
 
-function BetCard({ b, kpis, weeks, onChange }: { b: Bet; kpis: ChannelKpi[]; weeks: ChannelWeek[]; onChange: () => void }) {
-  const ev = evaluateBet(b, kpis, weeks);
+function BetCard({ b, kpis, weeks, funnel, onChange }: { b: Bet; kpis: ChannelKpi[]; weeks: ChannelWeek[]; funnel: FunnelRow[]; onChange: () => void }) {
+  const ev = evaluateBet(b, kpis, weeks, funnel);
   const [reading, setReading] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -64,7 +65,7 @@ function BetCard({ b, kpis, weeks, onChange }: { b: Bet; kpis: ChannelKpi[]; wee
     onChange();
   }
   const simulated = ev.source === 'manual reading' && /simulated/i.test(b.latest_kpi_note ?? '');
-  const needsManual = [1, 4, 5].includes(b.bet_id);
+  const needsManual = [4, 5].includes(b.bet_id) || (b.bet_id === 1 && ev.source !== 'data');
   return (
     <Section title={`#${b.bet_id} ${b.name}`} sub={<>Owner: {b.owner_name} · budget {b.budget_inr ? rs(b.budget_inr) : '₹0 extra'} · score {n1(b.score)}</>}
       right={<select className="input py-0.5 text-xs" value={b.status} onChange={(e) => setStatus(e.target.value)} aria-label="Bet status">

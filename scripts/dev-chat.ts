@@ -34,7 +34,7 @@ http.createServer(async (req, res) => {
   if (process.env.MOCK_LLM) {
     const b = JSON.parse(body || '{}');
     const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY || 'dev', { auth: { persistSession: false } });
-    const r = await runAgent({ db, asOf: b.asOf ?? null, target: b.target ?? '2026_base' }, b.messages, 'mock target', mock, [{ name: 'mock', url: '', key: 'x', model: 'scripted' }]);
+    const r = await runAgent({ db, asOf: b.asOf ?? null, target: b.target ?? '2026_base', edition: b.edition ?? '2026' }, b.messages, 'mock target', '', mock, [{ name: 'mock', url: '', key: 'x', model: 'scripted' }]);
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(r)); return;
   }
   await handler({ method: req.method, body }, { status: (n: number) => ({ json: (o: unknown) => { res.writeHead(n, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); } }) });

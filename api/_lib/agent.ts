@@ -18,9 +18,9 @@ const DEADLINE_MS = 75_000;
 const CALL_MS = 30_000;
 
 export async function runAgent(ctx: Ctx, history: { role: 'user' | 'assistant'; content: string }[], targetLabel: string,
-  completeFn: CompleteFn = complete, provs: Provider[] = providers()): Promise<AgentResult> {
+  edInfo = '', completeFn: CompleteFn = complete, provs: Provider[] = providers()): Promise<AgentResult> {
   if (provs.length === 0) return { answer: 'The AI model is not configured (missing GROQ_API_KEY / GEMINI_API_KEY).', trace: [], proposals: [], model: 'none', error: 'no_provider' };
-  const messages: ChatMsg[] = [{ role: 'system', content: systemPrompt(ctx.asOf, targetLabel) }, ...history.slice(-10)];
+  const messages: ChatMsg[] = [{ role: 'system', content: systemPrompt(ctx.asOf, targetLabel, edInfo) }, ...history.slice(-10)];
   const trace: TraceItem[] = [];
   const proposals: unknown[] = [];
   let pi = 0; let waited = 0; const attempts: string[] = []; const t0 = Date.now();

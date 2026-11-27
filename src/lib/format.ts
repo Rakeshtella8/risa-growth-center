@@ -14,8 +14,12 @@ export const flagClass: Record<string, string> = {
   grey: 'bg-slate-100 text-slate-600',
 };
 
-export function asOfLabel(asOf: string | null) {
-  if (!asOf) return 'All data';
-  const d = new Date(asOf.replace(' ', 'T'));
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+export function dateLabel(s: string | null | undefined) {
+  if (!s) return '–';
+  return new Date(s.replace(' ', 'T').slice(0, 19)).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+// null as-of = the edition's "today"
+export function asOfLabel(asOf: string | null, today?: string) {
+  if (!asOf) return today ? `Today, ${dateLabel(today)}` : 'Today';
+  return dateLabel(asOf);
 }

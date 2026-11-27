@@ -7,6 +7,9 @@ import pg from 'pg';
 
 pg.types.setTypeParser(1700, parseFloat); // numeric -> number, like PostgREST JSON
 pg.types.setTypeParser(20, (v) => Number(v)); // int8
+pg.types.setTypeParser(1082, (v) => v); // date -> "YYYY-MM-DD", like PostgREST
+pg.types.setTypeParser(1114, (v) => v.replace(" ", "T")); // timestamp -> ISO without zone
+pg.types.setTypeParser(1184, (v) => v.replace(" ", "T").replace(/([+-]\d\d)$/, "$1:00")); // timestamptz
 const pool = new pg.Pool({ connectionString: process.env.PGURL });
 const PORT = Number(process.argv[2] || 54321);
 const ident = (s) => '"' + String(s).replace(/"/g, '""') + '"';

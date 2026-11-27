@@ -4,7 +4,7 @@ truncate channel_baseline;
 insert into channel_baseline(campaign_id, cost_per_registrant_2025, show_rate_2025, ceiling_multiplier)
 select campaign_id, cost_per_registrant, show_rate_pct,
   case when campaign_id = 'C02' then 1.0 else 1.5 end   -- Slide 3: paid retargeting stop line = 2025 paid average Rs 137
-from f_channel_kpis(null);
+from f_channel_kpis(null, '2025');
 
 update campaigns c set budget_2026_inr = b.v from (values
  ('C04',75000),('C01',60000),('C05',40000),('C06',25000),('C07',25000),('C02',30000),('C03',15000)) b(id,v)

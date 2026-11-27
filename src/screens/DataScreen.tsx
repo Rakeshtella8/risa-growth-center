@@ -3,12 +3,14 @@ import { useApp, useData } from '../lib/app';
 import { db, audit } from '../lib/supabase';
 import { n0 } from '../lib/format';
 import { Section, Loading } from '../components/ui';
-import { PlanTarget, AuditRow } from '../lib/types';
+import { PlanTarget, AuditRow, Edition } from '../lib/types';
+import { rpc } from '../lib/supabase';
+import { dateLabel } from '../lib/format';
 import { parseCsv, toCsv } from '../lib/csv';
 
 const TABLES: Record<string, { label: string; cols: string[] }> = {
   daily_marketing: { label: 'Daily Marketing', cols: ['activity_id', 'campaign_id', 'campaign_name', 'activity_date', 'impressions', 'clicks', 'landing_page_sessions', 'registration_starts', 'marketing_spend_inr', 'platform'] },
-  registrations: { label: 'Registrations', cols: ['registration_id', 'person_id', 'person_name', 'campaign_id', 'registered_at'] },
+  registrations: { label: 'Registrations', cols: ['registration_id', 'person_id', 'person_name', 'campaign_id', 'registered_at', 'college', 'role', 'sport'] },
   registration_history: { label: 'Registration History', cols: ['history_id', 'registration_id', 'person_id', 'campaign_id', 'effective_at', 'status'] },
   checkins: { label: 'Check-ins', cols: ['event_id', 'person_id', 'registration_id', 'campaign_id', 'occurred_at', 'result', 'verification', 'source'] },
   people: { label: 'People', cols: ['person_id', 'person_name', 'person_type', 'first_seen_at', 'first_touch_source', 'first_campaign_id'] },
@@ -163,6 +165,7 @@ export default function DataScreen() {
           </>
         )}
       </Section>
+      <FestSettings onSaved={refresh} />
       <TargetsEditor onSaved={refresh} />
       <ChangeHistory />
     </div>
@@ -267,6 +270,70 @@ function ChangeHistory() {
           {data.length >= limit && <button className="btn-ghost mt-2 text-xs" onClick={() => setLimit(limit + 30)}>Show more</button>}
         </div>
       )}
+    </Section>
+  );
+}
+
+function FestSettings({ onSaved }: { onSaved: () => void }) {
+  const { ed, edition, today, version } = useApp();
+  const [f, setF] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState('');
+  const { data: sim } = useData(async () => {
+    const r = await db.from('registrations').select('row_id', { count: 'exact', head: true }).eq('is_simulated', true);
+    return r.error ? null : r.count ?? 0;
+  }, [version]);
+  const v = (k: keyof Edition) => f[k] ?? String(ed[k] ?? '').slice(0, k === 'demo_clock' ? 10 : 50);
+  const set = (k: string, x: string) => setF({ ...f, [k]: x });
+  async function save() {
+    setMsg('');
+    const n = { ...ed, ...f } as unknown as Record<string, string>;
+    const win = [ed.window_start.slice(0, 10), ed.window_end.slice(0, 10)];
+    for (const k of ['campaign_start', 'fest_day1', 'fest_day2']) if (!/^\d{4}-\d{2}-\d{2}$/.test(n[k]) || n[k] < win[0] || n[k] > win[1]) { setMsg(`Error: ${k.replace('_', ' ')} must be a date in ${win[0]} – ${win[1]}.`); return; }
+    if (!(n.campaign_start < n.fest_day1 && n.fest_day1 <= n.fest_day2)) { setMsg('Error: campaign start must come before fest day 1, and day 1 on or before day 2.'); return; }
+    const cap = Number(String(n.capacity).replace(/,/g, '')), sr = Number(n.assumed_show_rate_pct), wi = Number(n.assumed_walk_ins);
+    if (!Number.isInteger(cap) || cap < 0) { setMsg('Error: capacity must be a whole number.'); return; }
+    if (!(sr > 0 && sr <= 100)) { setMsg('Error: show rate must be between 0 and 100.'); return; }
+    if (!Number.isInteger(wi) || wi < 0) { setMsg('Error: walk-ins must be a whole number.'); return; }
+    const patch = { campaign_start: n.campaign_start, fest_day1: n.fest_day1, fest_day2: n.fest_day2, capacity: cap, assumed_show_rate_pct: sr, assumed_walk_ins: wi };
+    const r = await db.from('editions').update(patch).eq('edition', edition);
+    if (r.error) { setMsg('Error: ' + r.error.message); return; }
+    if (f.demo_clock && f.demo_clock !== ed.demo_clock.slice(0, 10)) {
+      try { await rpc('set_demo_clock', { p_clock: f.demo_clock + ' 23:59:59', p_edition: edition }); } catch (e) { setMsg('Error: ' + (e as Error).message); return; }
+    }
+    await audit('editions', 'update', edition, ed, { ...patch, demo_clock: f.demo_clock });
+    setF({}); setMsg('Saved. Every screen and the copilot now use these settings.'); onSaved();
+  }
+  async function removeSim() {
+    if (!window.confirm(`Delete the ${sim} simulated 2026 registrations and their people, spend and history? Reset data brings them back.`)) return;
+    try { const r = await rpc('remove_simulated'); await audit('*', 'remove_simulated', null, null, r); setMsg('Simulated rows removed. 2026 now shows only what you entered.'); onSaved(); }
+    catch (e) { setMsg('Error: ' + (e as Error).message); }
+  }
+  const field = (k: keyof Edition, label: string, type = 'text') => (
+    <label className="grid gap-1 text-xs"><span className="text-slate-500">{label}</span>
+      <input className="input" type={type} value={v(k)} onChange={(e) => set(k, e.target.value)} aria-label={label} /></label>
+  );
+  return (
+    <Section title={`Fest settings: ${ed.label}`} sub={`Dates and capacity drive pace, forecasts, the waitlist and the gate. Today in this fest year: ${dateLabel(today)}.`}>
+      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-7">
+        {field('campaign_start', 'Campaign start', 'date')}
+        {field('fest_day1', 'Fest day 1', 'date')}
+        {field('fest_day2', 'Fest day 2', 'date')}
+        {field('capacity', 'Capacity (confirmed places)')}
+        {field('assumed_show_rate_pct', 'Assumed show rate % [A]')}
+        {field('assumed_walk_ins', 'Assumed walk-ins [A]')}
+        {field('demo_clock', 'Demo "today"', 'date')}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button className="btn-primary text-xs" disabled={!Object.keys(f).length} onClick={save}>Save settings</button>
+        <span className="text-[11px] text-slate-400">Demo "today" only applies while the real date is outside this fest year.</span>
+      </div>
+      {edition === '2026' && (
+        <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <span><b>Simulated data [A]:</b> {sim === null ? 'unknown' : `${(sim ?? 0).toLocaleString('en-IN')} simulated 2026 registrations`} (2025 campaign shifted one year, channels scaled by assumed 2026 changes).</span>
+          {!!sim && <button className="btn-danger border border-red-200 text-xs" onClick={removeSim}>Remove simulated rows</button>}
+        </div>
+      )}
+      {msg && <p className={`mt-2 text-xs ${msg.startsWith('Error') ? 'text-red-700' : 'text-slate-600'}`} role="status">{msg}</p>}
     </Section>
   );
 }

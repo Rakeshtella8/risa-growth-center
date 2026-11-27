@@ -1,7 +1,7 @@
 // Scale / change / stop verdicts for the 5 bets, using the thresholds on Slide 3.
-// Bets 2 and 3 read their KPI live from the data; bets 1, 4 and 5 use the latest KPI reading entered by the team
+// Bets 2 and 3 read their KPI live from the data, bet 1 too once QR passes are issued; bets 4 and 5 use the latest KPI reading entered by the team
 // (their KPIs, e.g. QR passes or RSVPs, are not in the 2025 dataset).
-import type { Bet, ChannelKpi, ChannelWeek } from './types';
+import type { Bet, ChannelKpi, ChannelWeek, FunnelRow } from './types';
 
 export type Verdict = 'scale' | 'change' | 'stop' | 'no data';
 export interface BetEval { value: number | null; unit: string; source: 'data' | 'manual reading' | 'none'; verdict: Verdict; why: string }
@@ -13,11 +13,17 @@ export function weeklyVolume(weeks: ChannelWeek[] | undefined, campaignId: strin
   return w.length ? w.reduce((a, x) => a + Number(x.registrations), 0) / w.length : null;
 }
 
-export function evaluateBet(b: Bet, kpis: ChannelKpi[], weeks?: ChannelWeek[]): BetEval {
+export function evaluateBet(b: Bet, kpis: ChannelKpi[], weeks?: ChannelWeek[], funnel?: FunnelRow[]): BetEval {
   const ch = (id: string) => kpis.find((k) => k.campaign_id === id);
   const manual = b.latest_kpi_value;
   switch (b.bet_id) {
     case 1: {
+      // Live when passes are being issued: QR passes opened / confirmed registrants
+      const f = (k: string) => Number(funnel?.find((r) => r.metric === k)?.value ?? 0);
+      if (f('qr_passes_issued') > 0 && f('confirmed') > 0) {
+        const v = Math.round((1000 * f('qr_passes_downloaded')) / f('confirmed')) / 10;
+        return { value: v, unit: '% of confirmed opened their pass', source: 'data', ...band(v, 85, 70, 'higher'), why: '≥ 85% scale · 70–85% change · < 70% stop' };
+      }
       if (manual === null) return none('Enter the QR-pass rate (passes ÷ confirmed, %) as a KPI reading.');
       return { value: manual, unit: '%', source: 'manual reading', ...band(manual, 85, 70, 'higher'), why: '≥ 85% scale · 70–85% change · < 70% stop' };
     }

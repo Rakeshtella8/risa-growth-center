@@ -1,97 +1,113 @@
 import { Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, Cell, LabelList } from 'recharts';
 import { useApp, useData } from '../lib/app';
 import { rpc, db } from '../lib/supabase';
-import { n0, n1, rs, pct, asOfLabel } from '../lib/format';
-import { FunnelRow, Forecast, WeekRow, PlanTarget, metric } from '../lib/types';
+import { n0, n1, rs, pct, asOfLabel, dateLabel } from '../lib/format';
+import { FunnelRow, Forecast, PaceWeek, PlanTarget, metric } from '../lib/types';
 import { Kpi, Section, AskButton, Loading } from '../components/ui';
 
-const CAMPAIGN_WEEKS = 12; // 20 Jan – 13 Apr 2025
+const short = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 
 export default function Overview() {
-  const { asOf, target } = useApp();
+  const { asOf, target, edition, ed, today, phase } = useApp();
   const { data, error } = useData(async () => {
-    const [funnel, forecast, weeks, targets] = await Promise.all([
-      rpc<FunnelRow[]>('f_funnel', { p_as_of: asOf }),
-      rpc<Forecast[]>('f_forecast', { p_as_of: asOf, p_target: target }),
-      rpc<WeekRow[]>('f_weekly_pace', { p_as_of: asOf }),
+    const [funnel, forecast, pace, targets] = await Promise.all([
+      rpc<FunnelRow[]>('f_funnel', { p_as_of: asOf, p_edition: edition }),
+      rpc<Forecast[]>('f_forecast', { p_as_of: asOf, p_target: target, p_edition: edition }),
+      rpc<PaceWeek[]>('f_pace_compare', { p_as_of: asOf, p_edition: edition, p_target: target }),
       db.from('plan_targets').select('*').then((r) => (r.data ?? []) as PlanTarget[]),
     ]);
-    return { funnel, forecast: forecast[0], weeks, targets };
+    return { funnel, forecast: forecast[0], pace, targets };
   }, [asOf, target]);
   if (!data) return <Loading error={error} />;
-  const { funnel, forecast: f, weeks, targets } = data;
+  const { funnel, forecast: f, pace, targets } = data;
   const t = targets.find((x) => x.target_key === target)!;
   const m = (k: string) => metric(funnel, k);
-  const pre = f.open_registrants > 0;
-  const regPacePerWeek = t.registrants / CAMPAIGN_WEEKS;
-  const weekRows = weeks.filter((w) => w.registrations > 0 || w.spend_inr > 0).map((w, i) => ({
-    ...w, label: new Date(w.week_start).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
-    pace: Math.round(regPacePerWeek * (i + 1)),
-  }));
+  const pre = phase === 'pre';
+  const live = phase === 'live';
+  const hasBase = !!ed.baseline_edition;
+  const now = pace.filter((w) => w.cumulative !== null).at(-1);
+  const lastYear = now?.last_cumulative ?? null;
+  const vsLast = lastYear ? (100 * ((now?.cumulative ?? 0) - lastYear)) / lastYear : null;
+  const chart = pace.map((w) => ({ ...w, label: short(w.week_start) }));
+
   const funnelRows = [
-    { stage: 'Identified (campaigns)', v: m('identified_pre_event') },
+    { stage: 'Identified', v: m('identified_pre_event') },
     { stage: 'Registered', v: m('registrants') },
     { stage: 'Confirmed (latest status)', v: m('confirmed') },
-    { stage: 'Attended (registered)', v: m('registered_visitors') },
-    { stage: '+ Walk-ins', v: m('walk_in_visitors') },
-    { stage: 'Verified attendees', v: m('verified_visitors') },
+    ...(pre ? [{ stage: 'QR pass opened', v: m('qr_passes_downloaded') }] : [
+      { stage: 'Attended (registered)', v: m('registered_visitors') },
+      { stage: '+ Walk-ins', v: m('walk_in_visitors') },
+      { stage: 'Verified attendees', v: m('verified_visitors') }]),
   ];
   const leaks = [
-    { k: 'Identified but never registered', v: Math.max(m('identified_pre_event') - m('registrants'), 0), note: 'leads that never converted' },
-    pre ? { k: 'Confirmed, not yet attended', v: m('confirmed'), note: 'at 2025 rates ~31% will not show [A]' }
-      : { k: 'Confirmed but did not show', v: m('confirmed_no_shows'), note: 'biggest bottom-of-funnel leak' },
-    { k: 'Stuck on waitlist', v: m('waitlisted'), note: 'never released, none attended' },
+    { k: 'Identified but not registered', v: Math.max(m('identified_pre_event') - m('registrants'), 0), note: 'leads to convert' },
+    pre ? { k: 'Confirmed, pass not opened', v: Math.max(m('confirmed') - m('qr_passes_downloaded'), 0), note: m('qr_passes_issued') ? 'likeliest no-shows: nudge them (Bet 1)' : 'no QR passes sent yet' }
+      : { k: 'Confirmed but did not show', v: m('confirmed_no_shows'), note: live ? 'counted after the last fest day starts' : 'biggest bottom-of-funnel leak' },
+    { k: 'On the waitlist', v: m('waitlisted'), note: pre ? `release if places free (capacity ${n0(m('capacity'))})` : 'never released, none attended' },
     { k: 'Cancelled', v: m('cancelled'), note: 'latest status cancelled' },
   ];
-  // Before the fest, "forecast" counts only people already registered; the projection adds the recent run-rate for
-  // the weeks left [A], and pace compares registrants with an even plan to date (both computed in SQL, update 2).
-  const weeksIn = asOf ? Math.min(CAMPAIGN_WEEKS, Math.max(0, (new Date(asOf.replace(' ', 'T') + 'Z').getTime() - Date.UTC(2025, 0, 20)) / (7 * 864e5))) : CAMPAIGN_WEEKS;
-  const paceExpected = f.expected_registrants_by_now ?? Math.round((t.registrants / CAMPAIGN_WEEKS) * weeksIn);
-  const paceLabel = { expected: paceExpected, pct: f.pace_pct ?? (paceExpected ? (100 * m('registrants')) / paceExpected : 0) };
-  const headline = pre && f.projected_attendees !== undefined ? f.projected_attendees : f.forecast_attendees;
-  const headGap = pre && f.projected_gap !== undefined ? f.projected_gap : f.gap_to_target;
-  const attendeeLabel = pre ? (f.projected_attendees !== undefined ? 'Projected attendees' : 'Forecast attendees') : 'Verified attendees';
-  const gapTone = headGap >= 0 ? 'good' : 'bad';
+  const headline = pre ? f.projected_attendees ?? f.forecast_attendees : live ? f.forecast_attendees : f.actual_visitors;
+  const headGap = pre ? f.projected_gap ?? f.gap_to_target : f.gap_to_target;
+  const attendeeLabel = pre ? 'Projected attendees' : live ? 'Forecast attendees' : 'Verified attendees';
+  const daysToFest = Math.ceil((new Date(ed.fest_day1).getTime() - new Date((asOf ?? today).slice(0, 10)).getTime()) / 864e5);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Campaign overview</h1>
-          <p className="text-sm text-slate-500">As of <b>{asOfLabel(asOf)}</b> · compared with <b>{t.label}</b> ({n0(t.verified_attendees)} attendees, {rs(t.budget_inr)} budget)</p>
+          <h1 className="text-xl font-bold text-slate-900">{ed.label}: overview</h1>
+          <p className="text-sm text-slate-500">
+            As of <b>{asOfLabel(asOf, today)}</b> · {pre ? <><b>{n0(daysToFest)} days</b> to the fest ({dateLabel(ed.fest_day1)})</> : live ? <b>Fest in progress</b> : <>Fest held {dateLabel(ed.fest_day1)}</>}
+            {' '}· compared with <b>{t.label}</b> ({n0(t.verified_attendees)} attendees, {rs(t.budget_inr)} budget)
+          </p>
         </div>
         <AskButton q="Are we on track against the selected target? If not, where is the biggest gap and what should we do first?" label="Are we on track?" />
       </div>
+      {edition === '2026' && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Real 2026 data does not exist yet, so the weeks up to {dateLabel(ed.demo_clock)} are <b>simulated</b> from the 2025 campaign with assumed channel changes [A].
+          Every registration, status change and check-in you make here is real and counts at once. Remove the simulated rows on the Data screen.
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Kpi label={attendeeLabel} tag={pre ? 'A' : 'D'} value={n0(headline)} tone={gapTone}
+        <Kpi label={attendeeLabel} tag={pre || live ? 'A' : 'D'} value={n0(headline)} tone={headGap >= 0 ? 'good' : 'bad'}
           sub={<>{headGap >= 0 ? '+' : ''}{n0(headGap)} vs target {n0(f.target_attendees)}{pre && f.projected_attendees !== undefined
             ? <> · {n0(f.forecast_attendees)} from people already registered, + {n1(f.recent_weekly_registrations)} registrations/week for {n1(f.weeks_to_event)} more weeks</>
-            : pre && ' · registrants × 68.8% + 125 walk-ins'}</>} />
-        <Kpi label="External registrants" tag="D" value={n0(m('registrants'))} tone={pre ? (paceLabel.pct >= 100 ? 'good' : 'bad') : 'default'}
-          sub={pre ? <>{pct(paceLabel.pct)} of even pace ({n0(paceLabel.expected)} by now) · target {n0(t.registrants)}</> : <>target {n0(t.registrants)} · {pct((100 * m('registrants')) / t.registrants)} of target</>} />
-        <Kpi label="Show rate" tag="D" value={pre ? '–' : pct(m('show_rate_pct'))} sub={pre ? 'known after the fest' : 'registered visitors ÷ registrants'} tone={!pre && m('show_rate_pct') < 70 ? 'bad' : 'default'} />
+            : live ? <> · {n0(f.actual_visitors)} verified so far</> : null}</>} />
+        <Kpi label="External registrants" tag="D" value={n0(m('registrants'))} tone={pre ? ((f.pace_pct ?? 0) >= 100 ? 'good' : 'bad') : 'default'}
+          sub={pre ? <>{pct(f.pace_pct ?? 0)} of plan pace ({n0(f.expected_registrants_by_now)} by now){vsLast !== null && <> · {vsLast >= 0 ? '+' : ''}{n1(vsLast)}% vs same week last year ({n0(lastYear)})</>}</>
+            : <>target {n0(t.registrants)} · {pct((100 * m('registrants')) / t.registrants)} of target</>} />
+        <Kpi label={pre ? 'Confirmed places' : 'Show rate'} tag="D" value={pre ? n0(m('confirmed')) : pct(m('show_rate_pct'))}
+          sub={pre ? <>of {n0(m('capacity'))} capacity · {n0(m('waitlisted'))} waitlisted</> : 'registered visitors ÷ registrants'}
+          tone={!pre && m('show_rate_pct') < 70 ? 'bad' : 'default'} />
         <Kpi label="Marketing spend" tag="D" value={rs(m('marketing_spend_inr'))} sub={<>of {rs(t.budget_inr)} budget · {pct((100 * m('marketing_spend_inr')) / t.budget_inr)}</>} />
-        <Kpi label="Cost per attendee" tag="D" value={pre || !m('registered_visitors') ? '–' : rs(m('marketing_spend_inr') / m('registered_visitors'))} sub="spend ÷ campaign-driven attendees" />
+        {pre
+          ? <Kpi label="QR passes opened" tag="D" value={m('confirmed') ? pct((100 * m('qr_passes_downloaded')) / m('confirmed')) : '–'}
+              tone={m('confirmed') && (100 * m('qr_passes_downloaded')) / m('confirmed') >= 85 ? 'good' : 'bad'}
+              sub={<>{n0(m('qr_passes_downloaded'))} of {n0(m('confirmed'))} confirmed · Bet 1 scales at 85%</>} />
+          : <Kpi label="Cost per attendee" tag="D" value={!m('registered_visitors') ? '–' : rs(m('marketing_spend_inr') / m('registered_visitors'))} sub="spend ÷ campaign-driven attendees" />}
       </div>
       <p className="text-xs text-slate-500">{f.note}</p>
 
       <div className="grid gap-4 xl:grid-cols-5">
         <div className="xl:col-span-3">
-          <Section title="Weekly registrations vs pace" sub={`Bars: new external registrants per week (Mon–Sun) [D]. Line: cumulative. Dashed: even pace to ${n0(t.registrants)} registrants over 12 weeks [A].`}
-            right={<AskButton q="Which week had the worst return on spend and why? Use the weekly pace data." label="Worst week?" />}>
+          <Section title={hasBase ? 'Registrations: this year vs same week last year' : 'Registrations vs plan'}
+            sub={`Bars: new external registrants per campaign week [D]. Teal: cumulative this year.${hasBase ? ' Grey dashed: cumulative at the same week last year [D].' : ''} Amber dashed: even pace to ${n0(t.registrants)} registrants [A].`}
+            right={<AskButton q="Compare this year's registrations with the same week last year and the plan. Which channel explains the difference?" label="Why the gap?" />}>
             <div className="h-72">
               <ResponsiveContainer>
-                <ComposedChart data={weekRows} margin={{ left: 0, right: 8, top: 8 }}>
+                <ComposedChart data={chart} margin={{ left: 0, right: 8, top: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                   <YAxis yAxisId="w" tick={{ fontSize: 11 }} />
                   <YAxis yAxisId="c" orientation="right" tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v, name) => [n0(v), String(name)]} />
+                  <Tooltip formatter={(v, name) => [v === null || v === undefined ? '–' : n0(v), String(name)]} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar yAxisId="w" dataKey="registrations" name="Registrations / week" fill="#1a4380" radius={[3, 3, 0, 0]} />
-                  <Line yAxisId="c" dataKey="cumulative_registrations" name="Cumulative" stroke="#0f766e" strokeWidth={2} dot={false} />
-                  <Line yAxisId="c" dataKey="pace" name="Target pace" stroke="#d97706" strokeDasharray="6 4" dot={false} />
+                  <Line yAxisId="c" dataKey="cumulative" name="Cumulative" stroke="#0f766e" strokeWidth={2} dot={false} connectNulls={false} />
+                  {hasBase && <Line yAxisId="c" dataKey="last_cumulative" name="Last year, same week" stroke="#94a3b8" strokeDasharray="4 3" dot={false} />}
+                  <Line yAxisId="c" dataKey="plan_cumulative" name="Plan pace" stroke="#d97706" strokeDasharray="6 4" dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -116,18 +132,22 @@ export default function Overview() {
         </div>
       </div>
 
-      <Section title="Where people leak" sub="The cheapest attendees are people we already have [D]"
+      <Section title="Where people leak" sub="The cheapest attendees are people we already have [D]. Act on them in Attendees."
         right={<AskButton q="Rank the funnel leaks by size and tell me which one to fix first, with numbers." label="Which leak first?" />}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {leaks.map((l) => (
-            <div key={l.k} className="rounded-lg border border-slate-200 p-3">
+            <a key={l.k} href="#attendees" className="rounded-lg border border-slate-200 p-3 hover:border-navy-700">
               <div className="text-2xl font-bold text-red-700">{n0(l.v)}</div>
               <div className="text-sm font-medium">{l.k}</div>
               <div className="text-xs text-slate-500">{l.note}</div>
-            </div>
+            </a>
           ))}
         </div>
-        <p className="mt-3 text-xs text-slate-500">Visitors on both days: {n0(m('multi_day_visitors'))} · walk-ins: {n0(m('walk_in_visitors'))} · identified incl. walk-ins: {n0(m('identified_people'))} · cost per registrant: {m('registrants') ? '₹' + n1(m('marketing_spend_inr') / m('registrants')) : '–'}</p>
+        <p className="mt-3 text-xs text-slate-500">
+          Participants: {n0(m('participants'))} · spectators: {n0(m('spectators'))} (role recorded on the registration form) · reminders sent: {n0(m('reminders_sent'))}
+          {' '}· cost per registrant: {m('registrants') ? '₹' + n1(m('marketing_spend_inr') / m('registrants')) : '–'}
+          {!pre && <> · visitors on both days: {n0(m('multi_day_visitors'))} · walk-ins: {n0(m('walk_in_visitors'))}</>}
+        </p>
       </Section>
     </div>
   );

@@ -95,7 +95,8 @@ function CampaignRow({ c, onSaved, onError }: { c: Campaign; onSaved: () => void
 }
 
 function SpendForm({ campaigns, onSaved }: { campaigns: Campaign[]; onSaved: () => void }) {
-  const [f, setF] = useState({ campaign_id: 'C05', date: '2025-03-20', spend: '5000', note: '' });
+  const { ed, today } = useApp();
+  const [f, setF] = useState({ campaign_id: 'C05', date: today.slice(0, 10), spend: '5000', note: '' });
   const [msg, setMsg] = useState('');
   async function submit() {
     const c = campaigns.find((x) => x.campaign_id === f.campaign_id);
@@ -104,7 +105,7 @@ function SpendForm({ campaigns, onSaved }: { campaigns: Campaign[]; onSaved: () 
     if (amount === null) { setMsg('Error: spend must be a number in rupees, e.g. 5000 or 5,000.'); return; }
     if (amount === 0) { setMsg('Error: spend of ₹0 adds nothing.'); return; }
     if (Math.abs(amount) > 500000) { setMsg('Error: more than ₹5,00,000 in one entry looks like a typo. Split it or check the figure.'); return; }
-    if (!f.date) { setMsg('Error: pick a date.'); return; }
+    if (!f.date || f.date < ed.window_start.slice(0, 10) || f.date > today.slice(0, 10)) { setMsg(`Error: pick a date between ${ed.window_start.slice(0, 10)} and today (${today.slice(0, 10)}) in ${ed.label}.`); return; }
     const row = { activity_id: 'APP-' + Date.now(), campaign_id: c.campaign_id, campaign_name: c.campaign_name, owner_name: c.owner_name,
       activity_date: f.date + ' 00:00:00', marketing_spend_inr: amount, impressions: 0, clicks: 0, reported_reach: 0, landing_page_sessions: 0, registration_starts: 0, platform: f.note || 'manual entry' };
     const { error } = await db.from('daily_marketing').insert(row);
@@ -114,12 +115,12 @@ function SpendForm({ campaigns, onSaved }: { campaigns: Campaign[]; onSaved: () 
     onSaved();
   }
   return (
-    <Section title="Log spend" sub="Adds a row to the marketing data; every metric recalculates [D]. A negative amount records a correction.">
+    <Section title="Log spend" sub={`Adds a row to ${ed.label}; every metric recalculates [D]. A negative amount records a correction.`}>
       <div className="flex flex-wrap items-end gap-2 text-sm">
         <select className="input" value={f.campaign_id} onChange={(e) => setF({ ...f, campaign_id: e.target.value })} aria-label="Campaign">
           {campaigns.map((c) => <option key={c.campaign_id} value={c.campaign_id}>{c.campaign_name}</option>)}
         </select>
-        <input type="date" className="input" value={f.date} min="2025-01-15" max="2025-04-20" onChange={(e) => setF({ ...f, date: e.target.value })} aria-label="Date" />
+        <input type="date" className="input" value={f.date} min={ed.window_start.slice(0, 10)} max={today.slice(0, 10)} onChange={(e) => setF({ ...f, date: e.target.value })} aria-label="Date" />
         <input className="input w-28" inputMode="decimal" value={f.spend} onChange={(e) => setF({ ...f, spend: e.target.value })} aria-label="Spend in rupees" />
         <input className="input w-32" placeholder="note" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} aria-label="Note" />
         <button className="btn-primary" onClick={submit}>Add spend</button>

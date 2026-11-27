@@ -13,6 +13,7 @@ export interface Forecast {
   // update 2 (optional so the app still works before the SQL update is applied)
   recent_weekly_registrations?: number | null; weeks_to_event?: number; projected_registrants?: number; projected_attendees?: number;
   projected_gap?: number; target_registrants?: number; expected_registrants_by_now?: number; pace_pct?: number | null;
+  edition?: string; today?: string; fest_day1?: string;
 }
 export interface ChannelWeek { week_start: string; campaign_id: string; registrations: number; spend_inr: number; cost_per_registrant: number | null }
 export interface AuditRow { id: number; table_name: string; row_ref: string | null; action: string; old_value: unknown; new_value: unknown; created_at: string }
@@ -28,3 +29,15 @@ export interface Task {
   created_at: string; updated_at: string;
 }
 export const metric = (rows: FunnelRow[] | null, m: string) => Number(rows?.find((r) => r.metric === m)?.value ?? 0);
+
+export interface Edition { edition: string; label: string; window_start: string; window_end: string; campaign_start: string;
+  fest_day1: string; fest_day2: string; capacity: number; assumed_show_rate_pct: number; assumed_walk_ins: number;
+  default_target: string; baseline_edition: string | null; demo_clock: string }
+export interface PaceWeek { week_no: number; week_start: string; registrations: number | null; cumulative: number | null;
+  last_week_start: string | null; last_registrations: number | null; last_cumulative: number | null; plan_cumulative: number }
+export interface Attendee { person_id: string; person_name: string; college: string | null; role: string | null; sport: string | null;
+  campaign_id: string | null; registration_id: string | null; registered_at: string | null; status: string; attended: boolean;
+  last_checkin: string | null; reminders: number; pass_issued: boolean; pass_opened: boolean; is_simulated: boolean; total: number }
+export interface TimelineRow { at: string; kind: string; detail: string | null; campaign_id: string | null }
+export interface GateToday { today: string; gate_open: boolean; admitted_today: number; denied_today: number; walk_ins_today: number;
+  verified_total: number; confirmed: number; last_hour: number }

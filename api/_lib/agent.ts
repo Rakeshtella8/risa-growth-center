@@ -28,8 +28,14 @@ export async function runAgent(ctx: Ctx, history: { role: 'user' | 'assistant'; 
       const status = (e as { status?: number }).status;
       const wait = status === 429 ? retryAfter((e as Error).message) : null;
       attempts.push(`${provs[pi].model} ${status ?? 'net'} ${(e as Error).message.replace(/\s+/g, ' ').slice(0, 160)}`);
-      if (wait !== null && wait <= 6 && waited + wait <= 12) { waited += wait; await sleep(wait * 1000 + 250); step--; continue; }
-      if (pi + 1 < provs.length) { pi++; step--; continue; }
+      if (wait !== null && wait <= 20 && waited + wait <= 30) { waited += wait; await sleep(wait * 1000 + 250); step--; continue; }
+      if (pi + 1 < provs.length) {
+        pi++; step--;
+        // Another provider can't replay this provider's tool-call messages (Gemini needs its own signatures),
+        // so hand over what was fetched so far as plain text.
+        if (provs[pi].name !== provs[pi - 1].name) flatten(messages);
+        continue;
+      }
       console.error('all providers failed', (e as Error).message);
       return { answer: 'The free AI models are busy right now (rate limit). Please wait about a minute and ask again. The dashboard numbers are unaffected.', trace, proposals, model: provs[pi].name, error: 'provider_failed', attempts };
     }
@@ -52,6 +58,13 @@ export async function runAgent(ctx: Ctx, history: { role: 'user' | 'assistant'; 
     }
   }
   return { answer: 'I could not finish the analysis within the step limit. Try a narrower question.', trace, proposals, model: `${provs[pi].name}:${provs[pi].model}`, error: 'step_limit' };
+}
+
+function flatten(messages: ChatMsg[]) {
+  const first = messages.findIndex((m) => m.role === 'tool' || (m.role === 'assistant' && m.tool_calls?.length));
+  if (first < 0) return;
+  const notes = messages.slice(first).filter((m) => m.role === 'tool').map((m) => `Result of ${m.name}: ${m.content}`);
+  messages.splice(first, messages.length - first, { role: 'user', content: `Data already fetched by tools for my last question (use it, call more tools only if needed):\n${notes.join('\n')}` });
 }
 
 // Models sometimes write the source tags with full-width brackets (【D】); the UI styles [D] / [A].

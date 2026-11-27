@@ -181,7 +181,7 @@ begin
     perform copy_table('original.plan_targets', 'public.plan_targets');
   end if;
   if exists (select 1 from original.editions) then
-    delete from public.editions;
+    delete from public.editions where true; -- Supabase safeupdate blocks a DELETE with no WHERE
     perform copy_table('original.editions', 'public.editions');
   end if;
   update app_settings set as_of = null where id = 1;

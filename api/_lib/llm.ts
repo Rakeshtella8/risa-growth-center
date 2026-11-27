@@ -8,8 +8,8 @@ const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/com
 const list = (v: string | undefined, d: string) => (v || d).split(',').map((x) => x.trim()).filter(Boolean);
 
 export function providers(): Provider[] {
-  const groq = list(process.env.GROQ_MODELS || process.env.GROQ_MODEL, 'openai/gpt-oss-120b,meta-llama/llama-4-scout-17b-16e-instruct,llama-3.3-70b-versatile,openai/gpt-oss-20b');
-  const gem = list(process.env.GEMINI_MODELS || process.env.GEMINI_MODEL, 'gemini-2.5-flash-lite,gemini-2.5-flash,gemini-flash-lite-latest');
+  const groq = list(process.env.GROQ_MODELS || process.env.GROQ_MODEL, 'openai/gpt-oss-120b,qwen/qwen3.8-27b,openai/gpt-oss-20b');
+  const gem = list(process.env.GEMINI_MODELS || process.env.GEMINI_MODEL, 'gemini-flash-lite-latest,gemini-3.5-flash-lite,gemini-flash-latest,gemini-3.5-flash');
   return [
     ...groq.map((model) => ({ name: 'groq', url: GROQ, key: process.env.GROQ_API_KEY, model })),
     ...gem.map((model) => ({ name: 'gemini', url: GEMINI, key: process.env.GEMINI_API_KEY, model })),

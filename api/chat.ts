@@ -7,7 +7,18 @@ const TARGET_LABELS: Record<string, string> = {
   '2026_stretch': '2026 stretch plan (3,205 verified attendees)',
 };
 
-export default async function handler(req: { method?: string; body?: unknown }, res: { status: (n: number) => { json: (b: unknown) => void } }) {
+// Public project URL and publishable (browser) key, same as the web app uses; env vars override them.
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://twpnytzfgaaztfxbujjl.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_iBzEMZ271LzREvfwfw9H8Q_MW4o78ur';
+
+type Res = { status: (n: number) => { json: (b: unknown) => void } };
+
+export default async function handler(req: { method?: string; body?: unknown }, res: Res) {
+  try { return await handle(req, res); }
+  catch (e) { return res.status(500).json({ error: 'copilot failed: ' + (e as Error).message }); }
+}
+
+async function handle(req: { method?: string; body?: unknown }, res: Res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   const body = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) as {
     messages?: { role: 'user' | 'assistant'; content: string }[]; asOf?: string | null; target?: string; sessionId?: string;
@@ -17,7 +28,7 @@ export default async function handler(req: { method?: string; body?: unknown }, 
   if (!messages.length || messages[messages.length - 1].role !== 'user') return res.status(400).json({ error: 'last message must be from the user' });
   const target = TARGET_LABELS[body.target ?? ''] ? body.target! : '2026_base';
   const asOf = body.asOf && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/.test(body.asOf) ? body.asOf : null;
-  const db = createClient(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!, process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY!, { auth: { persistSession: false } });
+  const db = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
   const result = await runAgent({ db, asOf, target }, messages, TARGET_LABELS[target]);
   try {
     await db.from('chat_log').insert([

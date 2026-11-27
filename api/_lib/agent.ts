@@ -3,7 +3,7 @@ import { systemPrompt } from './prompt.js';
 import { providers, complete, ChatMsg, Provider } from './llm.js';
 
 export interface TraceItem { tool: string; args: unknown; ok: boolean; result: unknown }
-export interface AgentResult { answer: string; trace: TraceItem[]; proposals: unknown[]; model: string; error?: string }
+export interface AgentResult { answer: string; trace: TraceItem[]; proposals: unknown[]; model: string; error?: string; attempts?: string[] }
 
 const MAX_STEPS = 7;
 const MAX_TOOL_CHARS = 4000;
@@ -19,7 +19,7 @@ export async function runAgent(ctx: Ctx, history: { role: 'user' | 'assistant'; 
   const messages: ChatMsg[] = [{ role: 'system', content: systemPrompt(ctx.asOf, targetLabel) }, ...history.slice(-10)];
   const trace: TraceItem[] = [];
   const proposals: unknown[] = [];
-  let pi = 0; let waited = 0;
+  let pi = 0; let waited = 0; const attempts: string[] = [];
   for (let step = 0; step < MAX_STEPS; step++) {
     let msg: ChatMsg;
     try {
@@ -27,14 +27,15 @@ export async function runAgent(ctx: Ctx, history: { role: 'user' | 'assistant'; 
     } catch (e) {
       const status = (e as { status?: number }).status;
       const wait = status === 429 ? retryAfter((e as Error).message) : null;
+      attempts.push(`${provs[pi].model} ${status ?? 'net'} ${(e as Error).message.replace(/\s+/g, ' ').slice(0, 160)}`);
       if (wait !== null && wait <= 6 && waited + wait <= 12) { waited += wait; await sleep(wait * 1000 + 250); step--; continue; }
       if (pi + 1 < provs.length) { pi++; step--; continue; }
       console.error('all providers failed', (e as Error).message);
-      return { answer: 'The free AI models are busy right now (rate limit). Please wait about a minute and ask again. The dashboard numbers are unaffected.', trace, proposals, model: provs[pi].name, error: 'provider_failed' };
+      return { answer: 'The free AI models are busy right now (rate limit). Please wait about a minute and ask again. The dashboard numbers are unaffected.', trace, proposals, model: provs[pi].name, error: 'provider_failed', attempts };
     }
     if (!msg) break;
     const calls = msg.tool_calls ?? [];
-    if (calls.length === 0) return { answer: tidy(msg.content ?? ''), trace, proposals, model: `${provs[pi].name}:${provs[pi].model}` };
+    if (calls.length === 0) return { answer: tidy(msg.content ?? ''), trace, proposals, model: `${provs[pi].name}:${provs[pi].model}`, attempts };
     messages.push({ role: 'assistant', content: msg.content ?? null, tool_calls: calls });
     for (const c of calls) {
       let args: Record<string, unknown> = {};
@@ -54,4 +55,9 @@ export async function runAgent(ctx: Ctx, history: { role: 'user' | 'assistant'; 
 }
 
 // Models sometimes write the source tags with full-width brackets (【D】); the UI styles [D] / [A].
-export function tidy(s: string) { return s.replace(/【\s*([DA])\s*】/g, '[$1]').trim(); }
+// gpt-oss models occasionally leak their internal channel markup at the end of an answer; cut it off.
+export function tidy(s: string) {
+  const cut = s.search(/<\|[a-z_]+\|>|【(?:commentary|analysis|final)\b/);
+  if (cut >= 0) s = s.slice(0, cut);
+  return s.replace(/【\s*([DA])\s*】/g, '[$1]').trim();
+}

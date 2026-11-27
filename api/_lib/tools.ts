@@ -66,8 +66,13 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
       if (v('registered_visitors')) rows.push({ metric: 'cost_per_attendee_inr', value: r1(v('marketing_spend_inr') / v('registered_visitors')), definition: 'Dashboard definition: marketing spend / campaign-driven (registered) verified visitors; walk-ins excluded because no campaign drove them' });
       return { as_of: ctx.asOf ?? 'all data', rows };
     }
-    case 'get_channel_kpis':
-      return { as_of: ctx.asOf ?? 'all data', rows: await rpc(ctx, 'f_channel_kpis', { p_as_of }) };
+    case 'get_channel_kpis': {
+      const rows = (await rpc(ctx, 'f_channel_kpis', { p_as_of })) as Record<string, unknown>[];
+      const { data: owners } = await ctx.db.from('campaigns').select('campaign_id,owner_name');
+      const own = new Map((owners ?? []).map((o: { campaign_id: string; owner_name: string }) => [o.campaign_id, o.owner_name]));
+      return { as_of: ctx.asOf ?? 'all data', note: 'cost_ceiling = max cost per registrant before the channel is flagged red (1.5x its 2025 cost; Paid Social = its 2025 average)',
+        rows: rows.map((r) => ({ ...r, owner_name: own.get(String(r.campaign_id)) ?? null })) };
+    }
     case 'get_weekly_pace':
       return { as_of: ctx.asOf ?? 'all data', rows: await rpc(ctx, 'f_weekly_pace', { p_as_of }) };
     case 'get_forecast':

@@ -24,17 +24,17 @@ function scripted(calls: { name: string; args: object }[]): CompleteFn {
   };
 }
 
-const metric = (rows: { metric: string; value: number }[], m: string) => Number(rows.find((r) => r.metric === m)!.value);
+const metric = (m: Record<string, number>, k: string) => Number(m[k]);
 
 describe('copilot tools (live local data)', () => {
   beforeAll(async () => { await db.rpc('reset_to_original'); });
 
   it('funnel matches the audited 2025 numbers', async () => {
-    const f = (await runTool(ctx, 'get_funnel', {})) as { rows: { metric: string; value: number }[] };
-    expect(metric(f.rows, 'verified_visitors')).toBe(2050);
-    expect(metric(f.rows, 'registrants')).toBe(2800);
-    expect(metric(f.rows, 'confirmed_no_shows')).toBe(575);
-    expect(metric(f.rows, 'marketing_spend_inr')).toBe(274000);
+    const f = (await runTool(ctx, 'get_funnel', {})) as { metrics: Record<string, number> };
+    expect(metric(f.metrics, 'verified_visitors')).toBe(2050);
+    expect(metric(f.metrics, 'registrants')).toBe(2800);
+    expect(metric(f.metrics, 'confirmed_no_shows')).toBe(575);
+    expect(metric(f.metrics, 'marketing_spend_inr')).toBe(274000);
   });
 
   it('ranks leaks by attendees recoverable and never lists walk-ins', async () => {
@@ -46,9 +46,9 @@ describe('copilot tools (live local data)', () => {
   });
 
   it('as-of date changes the answer', async () => {
-    const f = (await runTool({ ...ctx, asOf: '2025-03-16 23:59:59' }, 'get_funnel', {})) as { rows: { metric: string; value: number }[] };
-    expect(metric(f.rows, 'marketing_spend_inr')).toBe(193375);
-    expect(metric(f.rows, 'verified_visitors')).toBe(0);
+    const f = (await runTool({ ...ctx, asOf: '2025-03-16 23:59:59' }, 'get_funnel', {})) as { metrics: Record<string, number> };
+    expect(metric(f.metrics, 'marketing_spend_inr')).toBe(193375);
+    expect(metric(f.metrics, 'verified_visitors')).toBe(0);
   });
 
   it('forecast compares against the chosen target', async () => {
@@ -86,8 +86,9 @@ describe('copilot tools (live local data)', () => {
 
   it('changed data flows through: +Rs 10k Paid Social spend', async () => {
     await db.from('daily_marketing').insert({ activity_id: 'TEST-AG', campaign_id: 'C02', activity_date: '2025-03-01 00:00:00', marketing_spend_inr: 10000 });
-    const k = (await runTool(ctx, 'get_channel_kpis', {})) as { rows: { campaign_id: string; cost_per_registrant: number }[] };
-    expect(k.rows.find((r) => r.campaign_id === 'C02')!.cost_per_registrant).toBe(151.5);
+    const k = (await runTool(ctx, 'get_channel_kpis', {})) as { columns: string[]; rows: unknown[][] };
+    const row = k.rows.find((r) => r[k.columns.indexOf('campaign_id')] === 'C02')!;
+    expect(row[k.columns.indexOf('cost_per_registrant')]).toBe(151.5);
     await db.rpc('reset_to_original');
   });
 });

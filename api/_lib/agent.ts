@@ -35,7 +35,9 @@ export async function runAgent(ctx: Ctx, history: { role: 'user' | 'assistant'; 
     } catch (e) {
       const status = (e as { status?: number }).status;
       const wait = status === 429 ? retryAfter((e as Error).message) : null;
-      attempts.push(`${provs[pi].model} ${status ?? 'net'} ${(e as Error).message.replace(/\s+/g, ' ').slice(0, 160)}`);
+      const m = (e as Error).message.replace(/\s+/g, ' ');
+      const kind = m.match(/on (tokens|requests) per (minute|day)[^.]*?Limit \d+, Used \d+/i)?.[0];
+      attempts.push(`${provs[pi].model} ${status ?? 'net'} ${kind ?? m.slice(0, 160)}`);
       if (wait !== null && wait <= 20 && waited + wait <= 30 && Date.now() - t0 + wait * 1000 < DEADLINE_MS - 15000) { waited += wait; await sleep(wait * 1000 + 250); step--; continue; }
       if (pi + 1 < provs.length) {
         pi++; step--;

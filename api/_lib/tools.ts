@@ -78,12 +78,16 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
         { leak: 'Stuck on waitlist (never released)', people: v('waitlisted'), attendees_if_recovered: 0, how: 'people x show rate [A]' },
       ].map((l) => ({ ...l, attendees_if_recovered: l.attendees_if_recovered || Math.round(l.people * sr) }))
         .filter((l) => l.people > 0).sort((a, b) => b.attendees_if_recovered - a.attendees_if_recovered);
-      return { as_of: ctx.asOf ?? 'all data', rows, leaks_ranked: leaks,
+      // Compact form keeps the free models under their tokens-per-minute limits; definitions live in get_data_dictionary.
+      const metrics = Object.fromEntries(rows.map((r) => [r.metric, Number(r.value)]));
+      return { as_of: ctx.asOf ?? 'all data', metrics, leaks_ranked: leaks,
         reading_notes: [
           'There is NO show-rate target. The only benchmark is the red-flag threshold: show rate below 70% is red. 2025 actual show rate is show_rate_pct.',
           'walk_in_visitors are extra attendees who never registered; they are not a leak and add to verified_visitors.',
           'verified_visitors = registered_visitors + walk_in_visitors.',
           'attendees_if_recovered is an upper bound at the 2025 show rate, not a forecast [A].',
+          'show_rate_pct = registered_visitors / registrants. identified_pre_event = campaign leads; identified_people also counts walk-ins. confirmed/cancelled/waitlisted = latest registration status. confirmed_no_shows = latest status confirmed but never a verified visitor.',
+          'cost_per_attendee_inr = spend / registered_visitors (walk-ins excluded: no campaign drove them).',
         ] };
     }
     case 'get_channel_kpis': {
@@ -92,10 +96,13 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
       const totSpend = rows.reduce((a, r) => a + Number(r.spend_inr ?? 0), 0);
       const totVis = rows.reduce((a, r) => a + Number(r.visitors ?? 0), 0);
       const own = new Map((owners ?? []).map((o: { campaign_id: string; owner_name: string }) => [o.campaign_id, o.owner_name]));
-      return { as_of: ctx.asOf ?? 'all data', note: 'cost_ceiling = max cost per registrant before the channel is flagged red (1.5x its 2025 cost; Paid Social = its 2025 average)',
-        rows: rows.map((r) => ({ ...r, owner_name: own.get(String(r.campaign_id)) ?? null,
-          share_of_spend_pct: totSpend ? Math.round(Number(r.spend_inr) / totSpend * 1000) / 10 : null,
-          share_of_attributed_visitors_pct: totVis ? Math.round(Number(r.visitors) / totVis * 1000) / 10 : null })) };
+      const full = rows.map((r) => ({ ...r, owner_name: own.get(String(r.campaign_id)) ?? null,
+        share_of_spend_pct: totSpend ? Math.round(Number(r.spend_inr) / totSpend * 1000) / 10 : null,
+        share_of_attributed_visitors_pct: totVis ? Math.round(Number(r.visitors) / totVis * 1000) / 10 : null }));
+      const columns = full.length ? Object.keys(full[0]).filter((c) => c !== 'channel') : [];
+      return { as_of: ctx.asOf ?? 'all data',
+        note: 'Table: each row lists values in the order of columns. cost_ceiling = max cost per registrant before the channel is flagged red (1.5x its 2025 cost; Paid Social = its 2025 average). A channel is above its ceiling only if cost_per_registrant > cost_ceiling.',
+        columns, rows: full.map((r) => columns.map((c) => (r as Record<string, unknown>)[c])) };
     }
     case 'get_weekly_pace':
       return { as_of: ctx.asOf ?? 'all data', rows: await rpc(ctx, 'f_weekly_pace', { p_as_of }) };

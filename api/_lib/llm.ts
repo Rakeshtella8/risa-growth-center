@@ -29,7 +29,8 @@ export async function complete(p: Provider, messages: ChatMsg[], tools: unknown[
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.key}` },
     body: JSON.stringify({ model: p.model, messages, tools, tool_choice: 'auto', temperature: 0.1, max_tokens: 1000,
-      ...(p.model.includes('gpt-oss') ? { reasoning_effort: 'low' } : {}) }),
+      // low reasoning keeps gpt-oss and Gemini Flash fast enough for a chat reply
+      ...(p.model.includes('gpt-oss') || p.name === 'gemini' ? { reasoning_effort: 'low' } : {}) }),
     signal,
   });
   if (!res.ok) {

@@ -11,7 +11,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // "Please try again in 2.5s" (Groq) / "retryDelay": "3s" (Gemini)
 function retryAfter(msg: string) { const m = msg.match(/try again in ([\d.]+)s|retryDelay\"?:\s*\"(\d+)s/); return m ? Number(m[1] ?? m[2]) : null; }
 
-export type CompleteFn = (p: Provider, m: ChatMsg[], t: unknown[]) => Promise<ChatMsg>;
+export type CompleteFn = (p: Provider, m: ChatMsg[], t: unknown[], signal?: AbortSignal) => Promise<ChatMsg>;
+
+// Whole answer must finish in time for the browser; one slow model call must not eat the budget.
+const DEADLINE_MS = 75_000;
+const CALL_MS = 30_000;
 
 export async function runAgent(ctx: Ctx, history: { role: 'user' | 'assistant'; content: string }[], targetLabel: string,
   completeFn: CompleteFn = complete, provs: Provider[] = providers()): Promise<AgentResult> {
@@ -19,16 +23,20 @@ export async function runAgent(ctx: Ctx, history: { role: 'user' | 'assistant'; 
   const messages: ChatMsg[] = [{ role: 'system', content: systemPrompt(ctx.asOf, targetLabel) }, ...history.slice(-10)];
   const trace: TraceItem[] = [];
   const proposals: unknown[] = [];
-  let pi = 0; let waited = 0; const attempts: string[] = [];
+  let pi = 0; let waited = 0; const attempts: string[] = []; const t0 = Date.now();
   for (let step = 0; step < MAX_STEPS; step++) {
     let msg: ChatMsg;
+    const left = DEADLINE_MS - (Date.now() - t0);
+    if (left < 5000) {
+      return { answer: 'The free AI models are slow or busy right now. Please ask again in a minute. The dashboard numbers are unaffected.', trace, proposals, model: provs[pi].name, error: 'deadline', attempts };
+    }
     try {
-      msg = await completeFn(provs[pi], messages, toolDefs as unknown as unknown[]);
+      msg = await completeFn(provs[pi], messages, toolDefs as unknown as unknown[], AbortSignal.timeout(Math.min(CALL_MS, left - 2000)));
     } catch (e) {
       const status = (e as { status?: number }).status;
       const wait = status === 429 ? retryAfter((e as Error).message) : null;
       attempts.push(`${provs[pi].model} ${status ?? 'net'} ${(e as Error).message.replace(/\s+/g, ' ').slice(0, 160)}`);
-      if (wait !== null && wait <= 20 && waited + wait <= 30) { waited += wait; await sleep(wait * 1000 + 250); step--; continue; }
+      if (wait !== null && wait <= 20 && waited + wait <= 30 && Date.now() - t0 + wait * 1000 < DEADLINE_MS - 15000) { waited += wait; await sleep(wait * 1000 + 250); step--; continue; }
       if (pi + 1 < provs.length) {
         pi++; step--;
         // Another provider can't replay this provider's tool-call messages (Gemini needs its own signatures),

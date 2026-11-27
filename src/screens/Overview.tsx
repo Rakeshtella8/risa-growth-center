@@ -43,12 +43,15 @@ export default function Overview() {
     { k: 'Stuck on waitlist', v: m('waitlisted'), note: 'never released, none attended' },
     { k: 'Cancelled', v: m('cancelled'), note: 'latest status cancelled' },
   ];
-  // Before the fest the forecast only counts people registered so far, so pace (vs an even weekly plan) is the fair test.
+  // Before the fest, "forecast" counts only people already registered; the projection adds the recent run-rate for
+  // the weeks left [A], and pace compares registrants with an even plan to date (both computed in SQL, update 2).
   const weeksIn = asOf ? Math.min(CAMPAIGN_WEEKS, Math.max(0, (new Date(asOf.replace(' ', 'T') + 'Z').getTime() - Date.UTC(2025, 0, 20)) / (7 * 864e5))) : CAMPAIGN_WEEKS;
-  const paceExpected = Math.round((t.registrants / CAMPAIGN_WEEKS) * weeksIn);
-  const paceLabel = { expected: paceExpected, pct: paceExpected ? (100 * m('registrants')) / paceExpected : 0 };
-  const attendeeLabel = pre ? 'Forecast attendees' : 'Verified attendees';
-  const gapTone = f.gap_to_target >= 0 ? 'good' : 'bad';
+  const paceExpected = f.expected_registrants_by_now ?? Math.round((t.registrants / CAMPAIGN_WEEKS) * weeksIn);
+  const paceLabel = { expected: paceExpected, pct: f.pace_pct ?? (paceExpected ? (100 * m('registrants')) / paceExpected : 0) };
+  const headline = pre && f.projected_attendees !== undefined ? f.projected_attendees : f.forecast_attendees;
+  const headGap = pre && f.projected_gap !== undefined ? f.projected_gap : f.gap_to_target;
+  const attendeeLabel = pre ? (f.projected_attendees !== undefined ? 'Projected attendees' : 'Forecast attendees') : 'Verified attendees';
+  const gapTone = headGap >= 0 ? 'good' : 'bad';
 
   return (
     <div className="space-y-4">
@@ -61,8 +64,10 @@ export default function Overview() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Kpi label={attendeeLabel} tag={pre ? 'A' : 'D'} value={n0(f.forecast_attendees)} tone={gapTone}
-          sub={<>{f.gap_to_target >= 0 ? '+' : ''}{n0(f.gap_to_target)} vs target {n0(f.target_attendees)}{pre && ' · registrants × 68.8% + 125 walk-ins'}</>} />
+        <Kpi label={attendeeLabel} tag={pre ? 'A' : 'D'} value={n0(headline)} tone={gapTone}
+          sub={<>{headGap >= 0 ? '+' : ''}{n0(headGap)} vs target {n0(f.target_attendees)}{pre && f.projected_attendees !== undefined
+            ? <> · {n0(f.forecast_attendees)} from people already registered, + {n1(f.recent_weekly_registrations)} registrations/week for {n1(f.weeks_to_event)} more weeks</>
+            : pre && ' · registrants × 68.8% + 125 walk-ins'}</>} />
         <Kpi label="External registrants" tag="D" value={n0(m('registrants'))} tone={pre ? (paceLabel.pct >= 100 ? 'good' : 'bad') : 'default'}
           sub={pre ? <>{pct(paceLabel.pct)} of even pace ({n0(paceLabel.expected)} by now) · target {n0(t.registrants)}</> : <>target {n0(t.registrants)} · {pct((100 * m('registrants')) / t.registrants)} of target</>} />
         <Kpi label="Show rate" tag="D" value={pre ? '–' : pct(m('show_rate_pct'))} sub={pre ? 'known after the fest' : 'registered visitors ÷ registrants'} tone={!pre && m('show_rate_pct') < 70 ? 'bad' : 'default'} />

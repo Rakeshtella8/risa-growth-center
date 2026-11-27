@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useApp, AS_OF_STEPS, TARGETS, TargetKey } from './lib/app';
+import { useApp, AS_OF_STEPS, TargetKey } from './lib/app';
 import { asOfLabel } from './lib/format';
 import { rpc, audit } from './lib/supabase';
 import Overview from './screens/Overview';
@@ -19,7 +19,7 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id'];
 
 export default function App() {
-  const { asOf, setAsOf, target, setTarget, copilotOpen, setCopilotOpen, refresh } = useApp();
+  const { asOf, setAsOf, target, setTarget, copilotOpen, setCopilotOpen, refresh, targets } = useApp();
   const [tab, setTab] = useState<TabId>(() => (TABS.find((t) => '#' + t.id === location.hash)?.id ?? 'overview'));
   const [resetting, setResetting] = useState(false);
   useEffect(() => { history.replaceState(null, '', '#' + tab); }, [tab]);
@@ -31,7 +31,7 @@ export default function App() {
   const idx = AS_OF_STEPS.indexOf(asOf);
 
   async function reset() {
-    if (!window.confirm('Restore the original 2025 dataset? Your data edits will be undone (tasks and KPI readings are kept).')) return;
+    if (!window.confirm('Restore the original 2025 dataset and the original targets? Your data edits will be undone (tasks and KPI readings are kept).')) return;
     setResetting(true);
     try { await rpc('reset_to_original'); await audit('*', 'reset_to_original', null, null, null); refresh(); }
     catch (e) { alert('Reset failed: ' + (e as Error).message); }
@@ -48,7 +48,7 @@ export default function App() {
           </div>
           <nav className="flex flex-wrap gap-1">
             {TABS.map((t) => (
-              <button key={t.id} onClick={() => setTab(t.id)} title={t.hint}
+              <button key={t.id} onClick={() => setTab(t.id)} title={t.hint} aria-label={t.label} aria-current={tab === t.id ? 'page' : undefined}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === t.id ? 'bg-white text-navy-900' : 'text-white/80 hover:bg-white/10'}`}>
                 {t.label}
               </button>
@@ -64,7 +64,7 @@ export default function App() {
             <label className="flex items-center gap-2">
               <span className="text-white/70">Compare to</span>
               <select value={target} onChange={(e) => setTarget(e.target.value as TargetKey)} className="rounded-md bg-white/10 px-2 py-1 text-white">
-                {TARGETS.map((t) => <option key={t.key} value={t.key} className="text-slate-800">{t.label}</option>)}
+                {targets.map((t) => <option key={t.key} value={t.key} className="text-slate-800">{t.label}</option>)}
               </select>
             </label>
             <button onClick={reset} disabled={resetting} className="rounded-md border border-white/30 px-2.5 py-1 text-white/90 hover:bg-white/10">

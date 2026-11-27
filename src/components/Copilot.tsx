@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useApp, TARGETS } from '../lib/app';
+import { useApp } from '../lib/app';
 import { db, audit, sessionId } from '../lib/supabase';
 import { asOfLabel } from '../lib/format';
 import { renderMarkdown } from '../lib/markdown';
@@ -9,7 +9,7 @@ interface TraceItem { tool: string; args: unknown; ok: boolean; result: unknown 
 interface Msg { role: 'user' | 'assistant'; content: string; trace?: TraceItem[]; proposals?: Proposal[]; model?: string; context?: string; error?: boolean }
 
 const STARTERS = [
-  'Why are we behind the 2,200 target?',
+  'Are we on track against the selected target, and what is the biggest gap?',
   'Which channel should we cut, and where should that money go?',
   'Move ₹10k from Creators to Referrals: what happens?',
   'What was the ticket revenue?',
@@ -19,7 +19,7 @@ const STARTERS = [
 function loadMsgs(): Msg[] { try { return JSON.parse(sessionStorage.getItem('rgc_chat') || '[]'); } catch { return []; } }
 
 export default function Copilot({ onClose }: { onClose: () => void }) {
-  const { asOf, target, refresh, pendingQuestion, clearPending } = useApp();
+  const { asOf, target, refresh, pendingQuestion, clearPending, targets } = useApp();
   const [msgs, setMsgs] = useState<Msg[]>(loadMsgs);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -27,7 +27,7 @@ export default function Copilot({ onClose }: { onClose: () => void }) {
   useEffect(() => { try { sessionStorage.setItem('rgc_chat', JSON.stringify(msgs.slice(-40))); } catch { /* ignore */ } end.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
   useEffect(() => { if (pendingQuestion && !busy) { send(pendingQuestion); clearPending(); } }, [pendingQuestion]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ctxLabel = `${asOfLabel(asOf)} · ${TARGETS.find((t) => t.key === target)?.label}`;
+  const ctxLabel = `${asOfLabel(asOf)} · ${targets.find((t) => t.key === target)?.label}`;
 
   async function send(text: string) {
     const q = text.trim();

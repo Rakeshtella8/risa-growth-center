@@ -17,7 +17,8 @@ revoke select on chat_log from anon, authenticated;
 -- editable through the app (Campaigns & tasks, Data screen, settings)
 grant insert, update, delete on tasks, bet_kpi_readings, daily_marketing, checkins, registrations,
   registration_history, people, interactions to anon, authenticated;
-grant update on campaigns, bets, app_settings to anon, authenticated;
+grant update on campaigns, bets, app_settings, plan_targets to anon, authenticated;
+grant insert on campaigns to anon, authenticated;
 grant insert on audit_log, chat_log to anon, authenticated;
 grant usage, select on all sequences in schema public to anon, authenticated;
 
@@ -33,7 +34,7 @@ begin
       execute format('create policy demo_read on public.%I for select to anon, authenticated, copilot_ro using (true)', t);
     end if;
     if t in ('tasks','bet_kpi_readings','daily_marketing','checkins','registrations','registration_history',
-             'people','interactions','campaigns','bets','app_settings','audit_log','chat_log') then
+             'people','interactions','campaigns','bets','app_settings','audit_log','chat_log','plan_targets') then
       execute format('create policy demo_write on public.%I for all to anon, authenticated using (true) with check (true)', t);
     end if;
   end loop;
@@ -45,7 +46,7 @@ end $$;
 -- 2. Function privileges ------------------------------------------------------
 revoke execute on all functions in schema public from public, anon, authenticated;
 grant execute on function cfg_as_of(), f_registrations(timestamp), f_visitors(timestamp), f_spend(timestamp),
-  f_funnel(timestamp), f_channel_kpis(timestamp), f_weekly_pace(timestamp), f_forecast(timestamp, text)
+  f_funnel(timestamp), f_channel_kpis(timestamp), f_weekly_pace(timestamp), f_forecast(timestamp, text), f_channel_weekly(timestamp)
   to anon, authenticated;
 
 alter function reset_to_original() security definer set search_path = public;
@@ -69,7 +70,7 @@ grant usage on schema public to copilot_ro;
 grant select on all tables in schema public to copilot_ro;
 revoke select on chat_log, audit_log from copilot_ro;
 grant execute on function cfg_as_of(), f_registrations(timestamp), f_visitors(timestamp), f_spend(timestamp),
-  f_funnel(timestamp), f_channel_kpis(timestamp), f_weekly_pace(timestamp), f_forecast(timestamp, text)
+  f_funnel(timestamp), f_channel_kpis(timestamp), f_weekly_pace(timestamp), f_forecast(timestamp, text), f_channel_weekly(timestamp)
   to copilot_ro;
 
 create or replace function copilot_query(q text) returns json

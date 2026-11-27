@@ -1,11 +1,21 @@
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 
+import { db } from './supabase';
+import type { PlanTarget } from './types';
+
 export type TargetKey = '2025_goal' | '2026_base' | '2026_stretch';
+// Default labels; the live ones come from plan_targets (editable on the Data screen).
 export const TARGETS: { key: TargetKey; label: string }[] = [
   { key: '2025_goal', label: '2025 goal (2,200)' },
   { key: '2026_base', label: '2026 base (2,670)' },
   { key: '2026_stretch', label: '2026 stretch (3,205)' },
 ];
+const SHORT: Record<string, string> = { '2025_goal': '2025 goal', '2026_base': '2026 base', '2026_stretch': '2026 stretch' };
+export function targetLabels(rows: PlanTarget[] | null) {
+  if (!rows?.length) return TARGETS;
+  return TARGETS.map((t) => { const r = rows.find((x) => x.target_key === t.key);
+    return r ? { key: t.key, label: `${SHORT[t.key]} (${new Intl.NumberFormat('en-IN').format(r.verified_attendees)})` } : t; });
+}
 
 // Week-end checkpoints (Sundays 23:59:59) for replaying the 2025 campaign; null = all data.
 export const AS_OF_STEPS: (string | null)[] = (() => {
@@ -25,6 +35,7 @@ interface AppState {
   version: number; refresh: () => void;
   copilotOpen: boolean; setCopilotOpen: (v: boolean) => void;
   askCopilot: (q: string) => void; pendingQuestion: string | null; clearPending: () => void;
+  targets: { key: TargetKey; label: string }[];
 }
 
 const Ctx = createContext<AppState | null>(null);
@@ -44,8 +55,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setTarget = (v: TargetKey) => { setTargetS(v); save('rgc_target', v); };
   const refresh = useCallback(() => setVersion((x) => x + 1), []);
   const askCopilot = (q: string) => { setCopilotOpen(true); setPending(q); };
+  const [targets, setTargets] = useState(TARGETS);
+  useEffect(() => { db.from('plan_targets').select('*').then((r) => { if (!r.error) setTargets(targetLabels(r.data as PlanTarget[])); }); }, [version]);
   return (
-    <Ctx.Provider value={{ asOf, setAsOf, target, setTarget, version, refresh, copilotOpen, setCopilotOpen, askCopilot, pendingQuestion, clearPending: () => setPending(null) }}>
+    <Ctx.Provider value={{ asOf, setAsOf, target, setTarget, version, refresh, copilotOpen, setCopilotOpen, askCopilot, pendingQuestion, clearPending: () => setPending(null), targets }}>
       {children}
     </Ctx.Provider>
   );

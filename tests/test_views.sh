@@ -45,6 +45,15 @@ check reset_spend 274000 "$(fm null marketing_spend_inr)"
 # 5. As-of replay: before 15 Mar, the event has not happened
 check asof_spend_pre15mar 193375 "$(fm "'2025-03-16 23:59:59'" marketing_spend_inr)"
 check asof_visitors_pre_event 0 "$(fm "'2025-04-01'" verified_visitors)"
-check asof_forecast_mode "Pre-event" "$(Q "select split_part(note,':',1) from f_forecast('2025-04-01','2026_base')")"
+check asof_forecast_mode "Pre-event" "$(Q "select split_part(note,'.',1) from f_forecast('2025-04-01','2026_base')")"
+
+
+# 6. Update 2: projection, pace, unlisted campaigns, funnel columns, weekly by channel
+check proj_9mar 1861 "$(Q "select projected_attendees from f_forecast('2025-03-09','2026_base')")"
+check pace_9mar 72.8 "$(Q "select pace_pct from f_forecast('2025-03-09','2026_base')")"
+check proj_post_event_equals_actual 2050 "$(Q "select projected_attendees from f_forecast(null,'2026_base')")"
+check funnel_cols_sessions_positive t "$(Q "select sum(sessions) > 0 and sum(registration_starts) > 0 from f_channel_kpis(null)")"
+check weekly_by_channel_reconciles 2800 "$(Q "select sum(registrations) from f_channel_weekly(null)")"
+check unlisted_campaign_listed 1 "$(Q "begin; insert into daily_marketing(activity_id,campaign_id,activity_date,marketing_spend_inr) values ('ATEST','C99','2025-03-02',5000); select count(*) from f_channel_kpis(null) where campaign_id='C99'; rollback;" | grep -x '[0-9]*')"
 
 echo "$pass passed, $fail failed"; [ $fail -eq 0 ]

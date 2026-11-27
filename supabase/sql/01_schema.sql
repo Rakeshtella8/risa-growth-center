@@ -109,6 +109,7 @@ create table if not exists original.interactions        (like public.interaction
 create table if not exists original.registrations       (like public.registrations);
 create table if not exists original.registration_history(like public.registration_history);
 create table if not exists original.checkins            (like public.checkins);
+create table if not exists original.plan_targets        (like public.plan_targets);
 
 create or replace function reset_to_original() returns text language plpgsql as $$
 declare t text;
@@ -121,6 +122,11 @@ begin
       execute format('select setval(pg_get_serial_sequence(''public.%I'',''row_id''), greatest(coalesce((select max(row_id) from public.%I),0),1))', t, t);
     end if;
   end loop;
+  -- targets edited in the app go back to the strategy model's values
+  if exists (select 1 from original.plan_targets) then
+    truncate public.plan_targets;
+    insert into public.plan_targets select * from original.plan_targets;
+  end if;
   update app_settings set as_of = null where id = 1;
   insert into audit_log(table_name, action) values ('*', 'reset_to_original');
   return 'reset done';

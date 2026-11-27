@@ -1,12 +1,19 @@
 // Scale / change / stop verdicts for the 5 bets, using the thresholds on Slide 3.
 // Bets 2 and 3 read their KPI live from the data; bets 1, 4 and 5 use the latest KPI reading entered by the team
 // (their KPIs, e.g. QR passes or RSVPs, are not in the 2025 dataset).
-import type { Bet, ChannelKpi } from './types';
+import type { Bet, ChannelKpi, ChannelWeek } from './types';
 
 export type Verdict = 'scale' | 'change' | 'stop' | 'no data';
 export interface BetEval { value: number | null; unit: string; source: 'data' | 'manual reading' | 'none'; verdict: Verdict; why: string }
 
-export function evaluateBet(b: Bet, kpis: ChannelKpi[]): BetEval {
+// Bet 2 also needs volume: average new College Partnerships registrants over the last 2 weeks that had any.
+export function weeklyVolume(weeks: ChannelWeek[] | undefined, campaignId: string): number | null {
+  if (!weeks) return null;
+  const w = weeks.filter((x) => x.campaign_id === campaignId && x.registrations > 0).sort((a, b) => a.week_start.localeCompare(b.week_start)).slice(-2);
+  return w.length ? w.reduce((a, x) => a + Number(x.registrations), 0) / w.length : null;
+}
+
+export function evaluateBet(b: Bet, kpis: ChannelKpi[], weeks?: ChannelWeek[]): BetEval {
   const ch = (id: string) => kpis.find((k) => k.campaign_id === id);
   const manual = b.latest_kpi_value;
   switch (b.bet_id) {
@@ -17,12 +24,20 @@ export function evaluateBet(b: Bet, kpis: ChannelKpi[]): BetEval {
     case 2: {
       const c = ch('C04'); const v = c?.cost_per_registrant ?? null;
       if (v === null) return none('No College Partnerships registrants yet.');
-      return { value: v, unit: '₹ per registrant', source: 'data', ...band(v, 103, 138, 'lower'), why: '≤ ₹103 scale · ₹103–138 change · > ₹138 stop (College Partnerships)' };
+      const vol = weeklyVolume(weeks, 'C04');
+      const volText = vol === null ? 'weekly volume unknown' : `${Math.round(vol)} registrants/week (last 2 weeks)`;
+      if (v > 138) return { value: v, unit: '₹ per registrant', source: 'data', verdict: 'stop', why: `Above ₹138 → move spend to referrals · ${volText}` };
+      if (v > 103) return { value: v, unit: '₹ per registrant', source: 'data', verdict: 'change', why: `₹103–138 → narrow to top-converting colleges · ${volText}` };
+      if (vol !== null && vol >= 88) return { value: v, unit: '₹ per registrant', source: 'data', verdict: 'scale', why: `≤ ₹103 and ${volText} (≥ 88 needed) → add colleges` };
+      return { value: v, unit: '₹ per registrant', source: 'data', verdict: 'change', why: `Cost is fine (≤ ₹103) but ${volText}, below the 88 needed to scale → add colleges only after volume holds` };
     }
     case 3: {
+      // Ceiling ₹137 per registrant for Paid Social. Within 5% below it counts as "at ceiling" (hold).
       const c = ch('C02'); const v = c?.cost_per_registrant ?? null;
       if (v === null) return none('No Paid Social registrants yet.');
-      return { value: v, unit: '₹ per registrant (Paid Social)', source: 'data', verdict: v > 137 ? 'stop' : 'scale', why: v > 137 ? 'Paid above ₹137 → cut paid to zero' : 'Paid at or below ₹137 → keep shifting budget to peer channels' };
+      if (v > 137) return { value: v, unit: '₹ per registrant (Paid Social)', source: 'data', verdict: 'stop', why: 'Paid above the ₹137 ceiling → cut paid to zero' };
+      if (v >= 137 * 0.95) return { value: v, unit: '₹ per registrant (Paid Social)', source: 'data', verdict: 'change', why: 'Paid within 5% of the ₹137 ceiling → hold, do not move more money yet' };
+      return { value: v, unit: '₹ per registrant (Paid Social)', source: 'data', verdict: 'scale', why: 'Paid more than 5% below the ₹137 ceiling → keep shifting budget to peer channels' };
     }
     case 4: {
       if (manual === null) return none('Enter referred ÷ contingent registrants as a KPI reading.');
@@ -34,6 +49,14 @@ export function evaluateBet(b: Bet, kpis: ChannelKpi[]): BetEval {
     }
   }
   return none('Unknown bet');
+}
+
+// Valid range for a manual KPI reading, per bet (null = no manual reading for this bet).
+export function readingRange(betId: number): { min: number; max: number; hint: string } | null {
+  if (betId === 1) return { min: 0, max: 100, hint: 'a percentage from 0 to 100' };
+  if (betId === 4) return { min: 0, max: 5, hint: 'a ratio such as 0.27 (not a percentage)' };
+  if (betId === 5) return { min: 0, max: 10000, hint: 'a whole number of RSVPs' };
+  return null;
 }
 
 function none(why: string): BetEval { return { value: null, unit: '', source: 'none', verdict: 'no data', why }; }

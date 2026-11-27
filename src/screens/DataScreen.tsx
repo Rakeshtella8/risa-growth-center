@@ -3,6 +3,7 @@ import { useApp, useData } from '../lib/app';
 import { db, audit } from '../lib/supabase';
 import { n0 } from '../lib/format';
 import { Section, Loading } from '../components/ui';
+import { PlanTarget, AuditRow } from '../lib/types';
 import { parseCsv, toCsv } from '../lib/csv';
 
 const TABLES: Record<string, { label: string; cols: string[] }> = {
@@ -14,6 +15,11 @@ const TABLES: Record<string, { label: string; cols: string[] }> = {
   interactions: { label: 'Interest and Engagement', cols: ['interaction_id', 'person_id', 'campaign_id', 'occurred_at', 'event_type', 'detail'] },
 };
 const PAGE = 50;
+const NUMBER_COLS = new Set(['impressions', 'clicks', 'landing_page_sessions', 'registration_starts', 'marketing_spend_inr']);
+const DATE_COLS = new Set(['activity_date', 'registered_at', 'effective_at', 'occurred_at', 'first_seen_at']);
+const kind = (c: string) => (NUMBER_COLS.has(c) ? 'number' : DATE_COLS.has(c) ? 'date' : 'text');
+const nextDay = (d: string) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); };
+interface Filter { col: string; q: string; to: string }
 
 export default function DataScreen() {
   const { refresh } = useApp();
@@ -21,36 +27,52 @@ export default function DataScreen() {
   const [page, setPage] = useState(0);
   const [col, setCol] = useState('');
   const [q, setQ] = useState('');
-  const [applied, setApplied] = useState({ col: '', q: '' });
+  const [to, setTo] = useState('');
+  const [applied, setApplied] = useState<Filter>({ col: '', q: '', to: '' });
   const [msg, setMsg] = useState('');
   const cfg = TABLES[table];
   const { data, error } = useData(async () => {
     let query = db.from(table).select(['row_id', ...cfg.cols].join(','), { count: 'exact' }).order('row_id').range(page * PAGE, page * PAGE + PAGE - 1);
-    if (applied.col && applied.q) query = query.ilike(applied.col, `%${applied.q}%`);
+    const k = kind(applied.col);
+    if (applied.col && k === 'text' && applied.q) query = query.ilike(applied.col, `%${applied.q}%`);
+    if (applied.col && k === 'number' && applied.q) query = query.eq(applied.col, Number(applied.q));
+    if (applied.col && k === 'date') {
+      if (applied.q) query = query.gte(applied.col, applied.q);
+      if (applied.to) query = query.lt(applied.col, nextDay(applied.to));
+    }
     const r = await query;
     if (r.error) throw r.error;
     return { rows: r.data as unknown as Record<string, unknown>[], count: r.count ?? 0 };
-  }, [table, page, applied.col, applied.q]);
+  }, [table, page, applied.col, applied.q, applied.to]);
+
+  function applyFilter() {
+    setMsg('');
+    const k = kind(col);
+    const v = q.trim();
+    if (col && k === 'number' && v !== '' && !Number.isFinite(Number(v.replace(/,/g, '')))) { setMsg(`Error: ${col} is a number column; enter a number.`); return; }
+    if (col && k === 'date' && v && to && to < v) { setMsg('Error: the "to" date is before the "from" date.'); return; }
+    setApplied({ col, q: k === 'number' ? v.replace(/,/g, '') : v, to: k === 'date' ? to : '' }); setPage(0);
+  }
+  const fk = kind(col);
 
   async function saveCell(row: Record<string, unknown>, c: string, value: string) {
     const old = row[c];
     if (String(old ?? '') === value) return;
-    const { error: e } = await db.from(table).update({ [c]: value === '' ? null : value }).eq('row_id', row.row_id as number);
+    if (kind(c) === 'number' && value !== '' && !Number.isFinite(Number(value.replace(/,/g, '')))) { setMsg(`Error: ${c} must be a number. Not saved.`); refresh(); return; }
+    if (kind(c) === 'date' && value !== '' && Number.isNaN(Date.parse(value.replace(' ', 'T')))) { setMsg(`Error: ${c} must be a date like 2025-03-20 or 2025-03-20 14:00:00. Not saved.`); refresh(); return; }
+    const clean = value === '' ? null : kind(c) === 'number' ? Number(value.replace(/,/g, '')) : value;
+    const { error: e } = await db.from(table).update({ [c]: clean }).eq('row_id', row.row_id as number);
     if (e) { setMsg('Error: ' + e.message); return; }
     await audit(table, 'update', String(row.row_id), { [c]: old }, { [c]: value });
     setMsg(`Saved ${c} on row ${row.row_id}. Metrics recalculated.`); refresh();
   }
   async function delRow(row: Record<string, unknown>) {
+    const label = cfg.cols.slice(0, 2).map((c) => String(row[c] ?? '')).join(' · ');
+    if (!window.confirm(`Delete row ${row.row_id} (${label}) from ${cfg.label}? Reset data in the top bar restores it.`)) return;
     const { error: e } = await db.from(table).delete().eq('row_id', row.row_id as number);
     if (e) { setMsg('Error: ' + e.message); return; }
     await audit(table, 'delete', String(row.row_id), row, null);
     setMsg(`Deleted row ${row.row_id}.`); refresh();
-  }
-  async function addRow() {
-    const blank = Object.fromEntries(cfg.cols.map((c) => [c, null]));
-    const { error: e } = await db.from(table).insert(blank);
-    if (e) { setMsg('Error: ' + e.message); return; }
-    setMsg('Added an empty row at the end. Fill its cells.'); refresh();
   }
   async function upload(file: File, mode: 'append' | 'replace') {
     const rows = parseCsv(await file.text());
@@ -93,19 +115,25 @@ export default function DataScreen() {
           <button className="btn-ghost" onClick={download}>Download CSV</button>
           <label className="btn-ghost cursor-pointer">Append CSV<input type="file" accept=".csv" className="hidden" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0], 'append')} /></label>
           <label className="btn-ghost cursor-pointer">Replace with CSV<input type="file" accept=".csv" className="hidden" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0], 'replace')} /></label>
-          <button className="btn-primary" onClick={addRow}>Add row</button>
         </div>}>
         <div className="mb-3 flex flex-wrap gap-2 text-sm">
-          <select className="input" value={table} onChange={(e) => { setTable(e.target.value); setPage(0); setApplied({ col: '', q: '' }); setCol(''); setQ(''); }} aria-label="Table">
+          <select className="input" value={table} onChange={(e) => { setTable(e.target.value); setPage(0); setApplied({ col: '', q: '', to: '' }); setCol(''); setQ(''); setTo(''); }} aria-label="Table">
             {Object.entries(TABLES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
           <select className="input" value={col} onChange={(e) => setCol(e.target.value)} aria-label="Filter column">
             <option value="">Filter column…</option>{cfg.cols.map((c) => <option key={c}>{c}</option>)}
           </select>
-          <input className="input" placeholder="contains…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (setApplied({ col, q }), setPage(0))} aria-label="Filter value" />
-          <button className="btn-ghost" onClick={() => { setApplied({ col, q }); setPage(0); }}>Filter</button>
+          {fk === 'date' ? (<>
+            <input type="date" className="input" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter from date" />
+            <span className="self-center text-xs text-slate-400">to</span>
+            <input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} aria-label="Filter to date" />
+          </>) : (
+            <input className="input" inputMode={fk === 'number' ? 'decimal' : undefined} placeholder={fk === 'number' ? 'equals…' : 'contains…'} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && applyFilter()} aria-label="Filter value" />
+          )}
+          <button className="btn-ghost" onClick={applyFilter}>Filter</button>
+          {(applied.q || applied.to) && <button className="btn-ghost" onClick={() => { setCol(''); setQ(''); setTo(''); setApplied({ col: '', q: '', to: '' }); setPage(0); }}>Clear</button>}
         </div>
-        {msg && <p className="mb-2 rounded bg-navy-50 px-2 py-1 text-xs text-navy-800">{msg}</p>}
+        {msg && <p className={`mb-2 rounded px-2 py-1 text-xs ${msg.startsWith('Error') ? 'bg-red-50 text-red-800' : 'bg-navy-50 text-navy-800'}`} role="status">{msg}</p>}
         {!data ? <Loading error={error} /> : (
           <>
             <div className="overflow-x-auto">
@@ -135,6 +163,110 @@ export default function DataScreen() {
           </>
         )}
       </Section>
+      <TargetsEditor onSaved={refresh} />
+      <ChangeHistory />
     </div>
+  );
+}
+
+const TARGET_FIELDS: { k: keyof PlanTarget; label: string }[] = [
+  { k: 'identified', label: 'Identified people' }, { k: 'registrants', label: 'Registrants' },
+  { k: 'verified_attendees', label: 'Verified attendees' }, { k: 'budget_inr', label: 'Budget ₹' },
+];
+
+function TargetsEditor({ onSaved }: { onSaved: () => void }) {
+  const { version } = useApp();
+  const { data, error } = useData(async () => {
+    const r = await db.from('plan_targets').select('*').order('target_key');
+    if (r.error) throw r.error;
+    return r.data as PlanTarget[];
+  }, [version]);
+  const [draft, setDraft] = useState<Record<string, Record<string, string>>>({});
+  const [msg, setMsg] = useState('');
+  if (!data) return <Section title="Targets and budget (constraints)"><Loading error={error} /></Section>;
+  const val = (t: PlanTarget, k: string) => draft[t.target_key]?.[k] ?? String((t as unknown as Record<string, unknown>)[k] ?? '');
+  const set = (t: PlanTarget, k: string, v: string) => setDraft({ ...draft, [t.target_key]: { ...draft[t.target_key], [k]: v } });
+  async function save(t: PlanTarget) {
+    setMsg('');
+    const d = draft[t.target_key] ?? {};
+    const patch: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(d)) {
+      if (k === 'label') { if (!v.trim()) { setMsg('Error: the label cannot be empty.'); return; } patch.label = v.trim(); continue; }
+      const n = Number(v.replace(/[₹,\s]/g, ''));
+      if (!Number.isInteger(n) || n < 0 || n > 10000000) { setMsg(`Error: ${k} must be a whole number of 0 or more.`); return; }
+      patch[k] = n;
+    }
+    const next = { ...t, ...patch } as PlanTarget;
+    if (next.verified_attendees > next.identified && next.identified > 0) { setMsg('Error: verified attendees cannot exceed identified people.'); return; }
+    if (!Object.keys(patch).length) return;
+    const r = await db.from('plan_targets').update(patch).eq('target_key', t.target_key);
+    if (r.error) { setMsg('Error: ' + r.error.message + (r.error.code === '42501' ? ' (run update_02.sql in Supabase to allow target edits)' : '')); return; }
+    await audit('plan_targets', 'update', t.target_key, Object.fromEntries(Object.keys(patch).map((k) => [k, (t as unknown as Record<string, unknown>)[k]])), patch);
+    setDraft({ ...draft, [t.target_key]: {} });
+    setMsg(`Saved ${next.label}. Overview, Channels, Bets and the copilot now compare against the new figures.`);
+    onSaved();
+  }
+  return (
+    <Section title="Targets and budget (constraints)" sub="Change a goal or the budget and every screen and the copilot use it at once. Reset data restores the originals.">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="border-b border-slate-200"><tr><th className="th">Target</th>{TARGET_FIELDS.map((f) => <th key={f.k} className="th text-right">{f.label}</th>)}<th className="th" /></tr></thead>
+          <tbody>
+            {data.map((t) => {
+              const dirty = Object.keys(draft[t.target_key] ?? {}).length > 0;
+              return (
+                <tr key={t.target_key} className="border-b border-slate-100">
+                  <td className="px-1 py-1"><input className="input w-full min-w-40" value={val(t, 'label')} onChange={(e) => set(t, 'label', e.target.value)} aria-label={`Label ${t.target_key}`} /><div className="px-1 text-[11px] text-slate-400">{t.target_key} · {t.source}</div></td>
+                  {TARGET_FIELDS.map((f) => (
+                    <td key={f.k} className="px-1 py-1"><input className="input w-28 text-right" inputMode="numeric" value={val(t, f.k)} onChange={(e) => set(t, f.k, e.target.value)} aria-label={`${f.label} ${t.target_key}`} /></td>
+                  ))}
+                  <td className="px-1"><button className="btn-primary text-xs" disabled={!dirty} onClick={() => save(t)}>Save</button></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {msg && <p className={`mt-2 text-xs ${msg.startsWith('Error') ? 'text-red-700' : 'text-slate-600'}`} role="status">{msg}</p>}
+    </Section>
+  );
+}
+
+function ChangeHistory() {
+  const { version } = useApp();
+  const [limit, setLimit] = useState(15);
+  const { data, error } = useData(async () => {
+    const r = await db.from('audit_log').select('id,table_name,row_ref,action,old_value,new_value,created_at').order('id', { ascending: false }).limit(limit);
+    if (r.error) throw r.error;
+    return r.data as AuditRow[];
+  }, [version, limit]);
+  const brief = (v: unknown) => {
+    if (v === null || v === undefined) return '';
+    const s = typeof v === 'object' ? Object.entries(v as Record<string, unknown>).slice(0, 4).map(([k, x]) => `${k}: ${typeof x === 'object' ? JSON.stringify(x) : String(x)}`).join(', ') : String(v);
+    return s.length > 120 ? s.slice(0, 117) + '…' : s;
+  };
+  return (
+    <Section title="Change history" sub="Every edit made in the app or by the copilot, newest first. Shared by everyone using this demo.">
+      {!data ? <Loading error={error} /> : data.length === 0 ? <p className="py-4 text-center text-sm text-slate-400">No changes yet.</p> : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="border-b border-slate-200"><tr><th className="th">When</th><th className="th">Table</th><th className="th">Action</th><th className="th">Row</th><th className="th">Before</th><th className="th">After</th></tr></thead>
+            <tbody>
+              {data.map((a) => (
+                <tr key={a.id} className="border-b border-slate-100 align-top">
+                  <td className="whitespace-nowrap px-2 py-1 text-slate-500">{new Date(a.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+                  <td className="px-2 py-1">{a.table_name}</td>
+                  <td className="px-2 py-1">{a.action}</td>
+                  <td className="px-2 py-1 text-slate-500">{a.row_ref}</td>
+                  <td className="px-2 py-1 text-slate-500">{brief(a.old_value)}</td>
+                  <td className="px-2 py-1">{brief(a.new_value)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {data.length >= limit && <button className="btn-ghost mt-2 text-xs" onClick={() => setLimit(limit + 30)}>Show more</button>}
+        </div>
+      )}
+    </Section>
   );
 }

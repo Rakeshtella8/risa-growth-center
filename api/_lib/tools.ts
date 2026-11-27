@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { projectPlan, ChannelBase, MARGINAL_MULT } from '../../src/lib/whatIf.js';
 import { evaluate } from './calc.js';
 import { evaluateBet } from '../../src/lib/bets.js';
-import type { Bet, ChannelKpi } from '../../src/lib/types.js';
+import type { Bet, ChannelKpi, ChannelWeek } from '../../src/lib/types.js';
 
 export interface Ctx {
   db: SupabaseClient;
@@ -16,9 +16,12 @@ type Json = Record<string, unknown>;
 
 export const toolDefs = [
   fn('get_funnel', 'Whole-event funnel at the current as-of date: identified people, registrants, confirmed, cancelled, waitlisted, verified visitors, walk-ins, confirmed no-shows, show rate, marketing spend. Each metric comes with its definition.', {}),
-  fn('get_channel_kpis', 'Per campaign/channel: spend, impressions, clicks, identified, registrants, confirmed, cancelled, visitors, show rate %, cost per registrant, cost per visitor, cost ceiling, opt-outs, red/amber/green flag.', {}),
+  fn('get_channel_trend', 'Weekly registrations, spend and cost per registrant for each campaign (week_start Monday). Use for trends and what changed week on week.', {
+    campaign_id: { type: 'string', description: 'Optional, e.g. C02' },
+  }),
+  fn('get_channel_kpis', 'Per campaign/channel: spend, impressions, clicks, landing sessions, registration starts (reach funnel), identified, registrants, confirmed, cancelled, visitors, show rate %, cost per registrant, cost per visitor, cost ceiling, opt-outs, red/amber/green flag.', {}),
   fn('get_weekly_pace', 'Weekly (Mon-Sun) registrations and spend with cumulative totals and cost per registrant, up to the as-of date.', {}),
-  fn('get_forecast', 'Forecast of verified attendees vs the selected comparison target (or the one given), with gap to target, budget and spend so far.', {
+  fn('get_forecast', 'Forecast vs the selected comparison target (or the one given). Before the fest: forecast_attendees counts only people already registered; projected_attendees adds the recent weekly run-rate for the weeks left [A]; pace_pct compares registrants with an even plan to date. Also gap, budget, spend so far.', {
     target_key: { type: 'string', enum: ['2025_goal', '2026_base', '2026_stretch'], description: 'Optional. Defaults to the target selected in the app.' },
   }),
   fn('get_targets', 'All comparison targets (2025 goal, 2026 base, 2026 stretch) with identified, registrants, verified attendees, budget and source.', {}),
@@ -81,11 +84,15 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
     }
     case 'get_weekly_pace':
       return { as_of: ctx.asOf ?? 'all data', rows: await rpc(ctx, 'f_weekly_pace', { p_as_of }) };
+    case 'get_channel_trend': {
+      const rows = (await rpc(ctx, 'f_channel_weekly', { p_as_of })) as { campaign_id: string }[];
+      return { as_of: ctx.asOf ?? 'all data', rows: args.campaign_id ? rows.filter((r) => r.campaign_id === args.campaign_id) : rows };
+    }
     case 'get_forecast': {
       const key = (args.target_key as string) || ctx.target;
       const fc = (await rpc(ctx, 'f_forecast', { p_as_of, p_target: key })) as Record<string, unknown> | Record<string, unknown>[];
       const f = (Array.isArray(fc) ? fc[0] : fc) ?? {};
-      if (!ctx.asOf || Number(f.open_registrants ?? 0) === 0) return f;
+      if (!ctx.asOf || Number(f.open_registrants ?? 0) === 0 || 'pace_pct' in f) return f; // update 2 computes projection + pace in SQL
       // Mid-campaign: the forecast only counts people registered so far, so also report pace against an even
       // weekly plan (12 campaign weeks, 20 Jan - 13 Apr) - that is the fair "on track?" test before the fest.
       const { data: tr } = await ctx.db.from('plan_targets').select('registrants').eq('target_key', key);
@@ -106,10 +113,10 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
     case 'get_bets': {
       // Same verdict logic as the Bets screen: bets 2 and 3 read their KPI live from channel data,
       // bets 1, 4 and 5 use the latest KPI reading the team entered.
-      const [{ data, error }, kpis] = await Promise.all([ctx.db.from('v_bet_status').select('*'), rpc(ctx, 'f_channel_kpis', { p_as_of })]);
+      const [{ data, error }, kpis, weeks] = await Promise.all([ctx.db.from('v_bet_status').select('*'), rpc(ctx, 'f_channel_kpis', { p_as_of }), rpc(ctx, 'f_channel_weekly', { p_as_of }).catch(() => [])]);
       if (error) throw new Error(error.message);
       return { as_of: ctx.asOf ?? 'all data', bets: (data as Bet[]).map((b) => {
-        const e = evaluateBet(b, kpis as ChannelKpi[]);
+        const e = evaluateBet(b, kpis as ChannelKpi[], weeks as ChannelWeek[]);
         return { bet_id: b.bet_id, name: b.name, owner_name: b.owner_name, status: b.status, kpi_name: b.kpi_name,
           kpi_value: e.value, kpi_unit: e.unit, kpi_source: e.source, verdict: e.verdict, thresholds: e.why,
           scale_if: b.scale_if, change_if: b.change_if, stop_if: b.stop_if, base_attendees: b.base_attendees, stretch_attendees: b.stretch_attendees,

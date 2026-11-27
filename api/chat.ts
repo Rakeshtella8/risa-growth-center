@@ -29,7 +29,12 @@ async function handle(req: { method?: string; body?: unknown }, res: Res) {
   const target = TARGET_LABELS[body.target ?? ''] ? body.target! : '2026_base';
   const asOf = body.asOf && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/.test(body.asOf) ? body.asOf : null;
   const db = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
-  const result = await runAgent({ db, asOf, target }, messages, TARGET_LABELS[target]);
+  // targets are editable in the app, so describe the live one
+  const { data: tr } = await db.from('plan_targets').select('label,registrants,verified_attendees,budget_inr').eq('target_key', target);
+  const t = (tr ?? [])[0] as { label: string; registrants: number; verified_attendees: number; budget_inr: number } | undefined;
+  const fmt = (n: number) => new Intl.NumberFormat('en-IN').format(n);
+  const label = t ? `${t.label} (${fmt(t.verified_attendees)} verified attendees, ${fmt(t.registrants)} registrants, Rs ${fmt(t.budget_inr)} budget)` : TARGET_LABELS[target];
+  const result = await runAgent({ db, asOf, target }, messages, label);
   try {
     await db.from('chat_log').insert([
       { session_id: body.sessionId ?? null, role: 'user', content: messages[messages.length - 1].content },

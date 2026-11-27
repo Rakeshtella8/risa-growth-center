@@ -58,8 +58,14 @@ async function rpc(ctx: Ctx, name: string, args: Json) {
 export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unknown> {
   const p_as_of = ctx.asOf;
   switch (name) {
-    case 'get_funnel':
-      return { as_of: ctx.asOf ?? 'all data', rows: await rpc(ctx, 'f_funnel', { p_as_of }) };
+    case 'get_funnel': {
+      const rows = (await rpc(ctx, 'f_funnel', { p_as_of })) as { metric: string; value: number; definition?: string }[];
+      const v = (k: string) => Number(rows.find((r) => r.metric === k)?.value ?? 0);
+      const r1 = (x: number) => Math.round(x * 10) / 10;
+      if (v('registrants')) rows.push({ metric: 'cost_per_registrant_inr', value: r1(v('marketing_spend_inr') / v('registrants')), definition: 'Marketing spend / external registrants' });
+      if (v('registered_visitors')) rows.push({ metric: 'cost_per_attendee_inr', value: r1(v('marketing_spend_inr') / v('registered_visitors')), definition: 'Dashboard definition: marketing spend / campaign-driven (registered) verified visitors; walk-ins excluded because no campaign drove them' });
+      return { as_of: ctx.asOf ?? 'all data', rows };
+    }
     case 'get_channel_kpis':
       return { as_of: ctx.asOf ?? 'all data', rows: await rpc(ctx, 'f_channel_kpis', { p_as_of }) };
     case 'get_weekly_pace':

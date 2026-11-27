@@ -6,7 +6,10 @@ export interface TraceItem { tool: string; args: unknown; ok: boolean; result: u
 export interface AgentResult { answer: string; trace: TraceItem[]; proposals: unknown[]; model: string; error?: string }
 
 const MAX_STEPS = 7;
-const MAX_TOOL_CHARS = 6000;
+const MAX_TOOL_CHARS = 4000;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// "Please try again in 2.5s" (Groq) / "retryDelay": "3s" (Gemini)
+function retryAfter(msg: string) { const m = msg.match(/try again in ([\d.]+)s|retryDelay\"?:\s*\"(\d+)s/); return m ? Number(m[1] ?? m[2]) : null; }
 
 export type CompleteFn = (p: Provider, m: ChatMsg[], t: unknown[]) => Promise<ChatMsg>;
 
@@ -16,19 +19,22 @@ export async function runAgent(ctx: Ctx, history: { role: 'user' | 'assistant'; 
   const messages: ChatMsg[] = [{ role: 'system', content: systemPrompt(ctx.asOf, targetLabel) }, ...history.slice(-10)];
   const trace: TraceItem[] = [];
   const proposals: unknown[] = [];
-  let pi = 0;
+  let pi = 0; let waited = 0;
   for (let step = 0; step < MAX_STEPS; step++) {
     let msg: ChatMsg;
     try {
       msg = await completeFn(provs[pi], messages, toolDefs as unknown as unknown[]);
     } catch (e) {
       const status = (e as { status?: number }).status;
-      if (pi + 1 < provs.length && (status === undefined || status === 429 || status >= 500 || status === 400)) { pi++; step--; continue; }
-      return { answer: `The AI service is unavailable right now (${(e as Error).message.slice(0, 120)}). The dashboard numbers are unaffected; please retry in a minute.`, trace, proposals, model: provs[pi].name, error: 'provider_failed' };
+      const wait = status === 429 ? retryAfter((e as Error).message) : null;
+      if (wait !== null && wait <= 6 && waited + wait <= 12) { waited += wait; await sleep(wait * 1000 + 250); step--; continue; }
+      if (pi + 1 < provs.length) { pi++; step--; continue; }
+      console.error('all providers failed', (e as Error).message);
+      return { answer: 'The free AI models are busy right now (rate limit). Please wait about a minute and ask again. The dashboard numbers are unaffected.', trace, proposals, model: provs[pi].name, error: 'provider_failed' };
     }
     if (!msg) break;
     const calls = msg.tool_calls ?? [];
-    if (calls.length === 0) return { answer: (msg.content ?? '').trim(), trace, proposals, model: `${provs[pi].name}:${provs[pi].model}` };
+    if (calls.length === 0) return { answer: tidy(msg.content ?? ''), trace, proposals, model: `${provs[pi].name}:${provs[pi].model}` };
     messages.push({ role: 'assistant', content: msg.content ?? null, tool_calls: calls });
     for (const c of calls) {
       let args: Record<string, unknown> = {};
@@ -44,5 +50,8 @@ export async function runAgent(ctx: Ctx, history: { role: 'user' | 'assistant'; 
       messages.push({ role: 'tool', tool_call_id: c.id, name: c.function.name, content: s });
     }
   }
-  return { answer: 'I could not finish the analysis within the step limit. Try a narrower question.', trace, proposals, model: provs[pi].name, error: 'step_limit' };
+  return { answer: 'I could not finish the analysis within the step limit. Try a narrower question.', trace, proposals, model: `${provs[pi].name}:${provs[pi].model}`, error: 'step_limit' };
 }
+
+// Models sometimes write the source tags with full-width brackets (【D】); the UI styles [D] / [A].
+export function tidy(s: string) { return s.replace(/【\s*([DA])\s*】/g, '[$1]').trim(); }

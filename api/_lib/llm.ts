@@ -1,10 +1,18 @@
 // OpenAI-compatible chat completions with provider fallback: Groq first, then Gemini.
 export interface Provider { name: string; url: string; key: string | undefined; model: string }
 
+// Free tiers limit each MODEL separately (requests and tokens per minute), so the chain tries several models
+// per provider before giving up. Override with comma-separated GROQ_MODELS / GEMINI_MODELS.
+const GROQ = 'https://api.groq.com/openai/v1/chat/completions';
+const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+const list = (v: string | undefined, d: string) => (v || d).split(',').map((x) => x.trim()).filter(Boolean);
+
 export function providers(): Provider[] {
+  const groq = list(process.env.GROQ_MODELS || process.env.GROQ_MODEL, 'openai/gpt-oss-120b,meta-llama/llama-4-scout-17b-16e-instruct,llama-3.3-70b-versatile,openai/gpt-oss-20b');
+  const gem = list(process.env.GEMINI_MODELS || process.env.GEMINI_MODEL, 'gemini-2.5-flash-lite,gemini-2.5-flash,gemini-flash-lite-latest');
   return [
-    { name: 'groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: process.env.GROQ_API_KEY, model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b' },
-    { name: 'gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', key: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-flash-lite-latest' },
+    ...groq.map((model) => ({ name: 'groq', url: GROQ, key: process.env.GROQ_API_KEY, model })),
+    ...gem.map((model) => ({ name: 'gemini', url: GEMINI, key: process.env.GEMINI_API_KEY, model })),
   ].filter((p) => !!p.key);
 }
 
@@ -15,7 +23,7 @@ export async function complete(p: Provider, messages: ChatMsg[], tools: unknown[
   const res = await fetch(p.url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.key}` },
-    body: JSON.stringify({ model: p.model, messages, tools, tool_choice: 'auto', temperature: 0.1, max_tokens: 1200 }),
+    body: JSON.stringify({ model: p.model, messages, tools, tool_choice: 'auto', temperature: 0.1, max_tokens: 1000 }),
     signal,
   });
   if (!res.ok) {

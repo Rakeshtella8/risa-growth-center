@@ -3,6 +3,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { projectPlan, ChannelBase, MARGINAL_MULT } from '../../src/lib/whatIf.js';
 import { evaluate } from './calc.js';
+import { evaluateBet } from '../../src/lib/bets.js';
+import type { Bet, ChannelKpi } from '../../src/lib/types.js';
 
 export interface Ctx {
   db: SupabaseClient;
@@ -22,7 +24,7 @@ export const toolDefs = [
   fn('get_targets', 'All comparison targets (2025 goal, 2026 base, 2026 stretch) with identified, registrants, verified attendees, budget and source.', {}),
   fn('get_bets', 'The 5 growth bets with KPI, base/stretch attendee impact, budget, owner, score, status, scale/change/stop thresholds, latest KPI reading and open tasks.', {}),
   fn('list_tasks', 'Tasks in the campaign manager (title, owner, due date, status, priority, linked bet/campaign).', {
-    status: { type: 'string', enum: ['todo', 'doing', 'done', 'blocked'], description: 'Optional filter' },
+    status: { type: 'string', enum: ['open', 'todo', 'doing', 'done', 'blocked'], description: 'Optional filter. open = everything not done (todo, doing, blocked)' },
   }),
   fn('get_data_dictionary', 'Lists every table and column available. Use it to check whether the data CAN answer a question before saying it cannot.', {}),
   fn('run_sql', 'Read-only SQL (one SELECT or WITH statement, Postgres) over the tables and views. Max 200 rows returned. Raw tables contain duplicates and non-external people: for people counts, prefer the f_* functions or views (c_ext_people, f_registrations(null), f_visitors(null), f_spend(null)) which apply the counting rules.', {
@@ -69,9 +71,13 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
     case 'get_channel_kpis': {
       const rows = (await rpc(ctx, 'f_channel_kpis', { p_as_of })) as Record<string, unknown>[];
       const { data: owners } = await ctx.db.from('campaigns').select('campaign_id,owner_name');
+      const totSpend = rows.reduce((a, r) => a + Number(r.spend_inr ?? 0), 0);
+      const totVis = rows.reduce((a, r) => a + Number(r.visitors ?? 0), 0);
       const own = new Map((owners ?? []).map((o: { campaign_id: string; owner_name: string }) => [o.campaign_id, o.owner_name]));
       return { as_of: ctx.asOf ?? 'all data', note: 'cost_ceiling = max cost per registrant before the channel is flagged red (1.5x its 2025 cost; Paid Social = its 2025 average)',
-        rows: rows.map((r) => ({ ...r, owner_name: own.get(String(r.campaign_id)) ?? null })) };
+        rows: rows.map((r) => ({ ...r, owner_name: own.get(String(r.campaign_id)) ?? null,
+          share_of_spend_pct: totSpend ? Math.round(Number(r.spend_inr) / totSpend * 1000) / 10 : null,
+          share_of_attributed_visitors_pct: totVis ? Math.round(Number(r.visitors) / totVis * 1000) / 10 : null })) };
     }
     case 'get_weekly_pace':
       return { as_of: ctx.asOf ?? 'all data', rows: await rpc(ctx, 'f_weekly_pace', { p_as_of }) };
@@ -98,13 +104,22 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
       return data;
     }
     case 'get_bets': {
-      const { data, error } = await ctx.db.from('v_bet_status').select('*');
+      // Same verdict logic as the Bets screen: bets 2 and 3 read their KPI live from channel data,
+      // bets 1, 4 and 5 use the latest KPI reading the team entered.
+      const [{ data, error }, kpis] = await Promise.all([ctx.db.from('v_bet_status').select('*'), rpc(ctx, 'f_channel_kpis', { p_as_of })]);
       if (error) throw new Error(error.message);
-      return data;
+      return { as_of: ctx.asOf ?? 'all data', bets: (data as Bet[]).map((b) => {
+        const e = evaluateBet(b, kpis as ChannelKpi[]);
+        return { bet_id: b.bet_id, name: b.name, owner_name: b.owner_name, status: b.status, kpi_name: b.kpi_name,
+          kpi_value: e.value, kpi_unit: e.unit, kpi_source: e.source, verdict: e.verdict, thresholds: e.why,
+          scale_if: b.scale_if, change_if: b.change_if, stop_if: b.stop_if, base_attendees: b.base_attendees, stretch_attendees: b.stretch_attendees,
+          budget_inr: b.budget_inr, score: b.score, open_tasks: b.open_tasks };
+      }) };
     }
     case 'list_tasks': {
       let q = ctx.db.from('tasks').select('id,title,description,owner_name,due_date,status,priority,bet_id,campaign_id,created_by').order('id');
-      if (args.status) q = q.eq('status', args.status as string);
+      if (args.status === 'open') q = q.neq('status', 'done');
+      else if (args.status) q = q.eq('status', args.status as string);
       const { data, error } = await q;
       if (error) throw new Error(error.message);
       return data;

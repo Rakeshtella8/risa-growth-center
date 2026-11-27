@@ -128,21 +128,42 @@ Browser (React 19 + Vite + Tailwind + Recharts)  ──reads/writes──►  Su
 | Suite | What it checks | Result |
 |---|---|---|
 | `tests/test_views.sh` (21 checks) | Every audited 2025 number, the as-of behaviour (pre-event forecast mode) and the counting rules | Pass |
-| `vitest` (19 tests) | Calculator, what-if engine (reproduces 2025 and 2026), and tools against a local copy of the database | Pass |
+| `vitest` (20 tests) | Calculator, what-if engine (reproduces 2025 and 2026), and tools against a local copy of the database | Pass |
 | Access rules | As anon: deletes rejected, multi-statement SQL rejected, chat_log hidden, loader and http functions blocked, reset works | Pass |
 | UI end-to-end (Playwright) | A data edit flows into the Overview, the as-of slider works, reset restores, and a copilot proposal becomes a task after Confirm | Pass |
 | Live copilot test bank | Facts, can't-answer, false premises, calculations, what-ifs, as-of, ad-hoc SQL, follow-ups, prompt injection, off-topic | See below |
 
-LIVE_RESULTS_PLACEHOLDER
+**Live copilot test bank (production site, 27 Nov 2026).** I ran 33 questions, including multi-turn follow-ups, against the deployed app.
+
+| Run | What happened | What changed |
+|---|---|---|
+| 1 | Most answers failed. One free model hit its tokens-per-minute limit within 3 questions, and the Gemini fallback failed too. | Added a chain of several models with short retries, and made the error message friendly. |
+| 2 | 20 of 33 answered. The `/api/models` check showed two of the Groq models no longer exist and the two Gemini 2.5 models are closed to new users. Switching to Gemini mid-answer broke because of a tool-call signature mismatch. | Rebuilt the chain from the models these keys can actually use. On a provider switch, the data fetched so far is handed over as text. |
+| 3 | **32 of 33 answered.** The one failure was a network drop during a redeploy. There were 0 rate-limit failures. Median response 15 s, 90th percentile 30 s, because the agent waits out free-tier limits. | The fixes below. |
+| 4 | Changed-data test: I added a temporary ₹10,000 Paid Social spend row through the public API, then asked. The copilot answered ₹1,03,000 spend and ₹151.5 per registrant, and bet #3 flipped to **stop**, all correct. I then deleted the row. | — |
+
+Numbers checked against SQL: both-day visitors 725, walk-ins on day 2 45 of 125 (36%), busiest weekday Saturday (441), brochure downloads that never registered 319, top owner Meera Iyer (775 attendees), and cancelled 183. The what-ifs also matched: moving ₹10k from Creators to Referrals adds 67, cutting Paid Social to zero gives 2,120 registrants and 1,710 attendees, and an 80% show rate adds 315.
+The copilot refused ticket revenue, gender and satisfaction, and said what data would be needed for each. It corrected false premises ("we beat 3,200", "Paid Social was cheapest"). It refused the write-SQL and "delete all tasks" prompts.
+
+Issues the test bank found, now fixed:
+- "Are we on track?" mid-campaign compared the partial forecast with the full target. It now uses pace against an even weekly plan (74% on 10 Mar), and the Overview shows the same.
+- Bet verdicts were empty in chat. Chat now uses the same verdict logic as the Bets screen.
+- "No data" was read as "stop". It now prompts the team to log a reading.
+- A spend share was computed in the model's head (45% instead of 34%). The shares now come from the tool.
+- Mixed up 2025 goals and 2026 targets. Both are now stated in the prompt.
+- Task due dates were set in 2025. The prompt now carries today's date.
+- Asking "open tasks" missed tasks marked doing. "Open" now means everything not done.
+- gpt-oss sometimes leaked its markup. That markup is now stripped from answers.
+
 
 ## 8. Limitations (honest)
 
 - **The data is synthetic** and comes from a generic fest. Its rates are a proxy for a sports fest.
 - **Attribution is not causation.** Channel costs are averages, and the 1.5× marginal-cost rule is an assumption. The sensitivity table shows its effect.
 - **The weakest assumptions** are squad referrals (0.25) and evening walk-ins (+300). They are only in the stretch case, and Bets 4 and 5 test them first.
-- **Free AI tiers have per-minute limits.** Heavy back-to-back questioning can hit them all at once. The app then says so instead of guessing. A paid key, or more models in `GROQ_MODELS` / `GEMINI_MODELS`, removes the limit.
+- **Free AI tiers have per-minute limits,** so answers take 5–30 s while the agent waits for capacity. Very heavy back-to-back questioning can still exhaust every model; the app then says so instead of guessing. A pay-per-use Groq key, or more models in `GROQ_MODELS` / `GEMINI_MODELS`, removes the wait.
+- **Wording slips remain possible.** The model owns the wording, so it can still mislabel a correct number. That is why every answer shows its queries.
 - **The demo has no login.** Anyone with the link can edit, which is intended for the review. Reset data undoes any edit. A real deployment would add Supabase Auth and per-role policies.
-- **The model can still make mistakes** in wording or interpretation. Numbers come from tools, and "How I got this" shows each query so any answer can be checked.
 
 ---
 Built by Rakesh Tella.

@@ -15,7 +15,7 @@ export interface Ctx {
 type Json = Record<string, unknown>;
 
 export const toolDefs = [
-  fn('get_funnel', 'Whole-event funnel at the current as-of date: identified people, registrants, confirmed, cancelled, waitlisted, verified visitors, walk-ins, confirmed no-shows, show rate, marketing spend. Each metric comes with its definition.', {}),
+  fn('get_funnel', 'Whole-event funnel at the current as-of date: identified people, registrants, confirmed, cancelled, waitlisted, verified visitors, walk-ins, confirmed no-shows, show rate, marketing spend. Each metric comes with its definition, plus leaks_ranked (each leak with the attendees it could add back) and reading_notes. Use leaks_ranked for "biggest gap / which leak first".', {}),
   fn('get_channel_trend', 'Weekly registrations, spend and cost per registrant for each campaign (week_start Monday). Use for trends and what changed week on week.', {
     campaign_id: { type: 'string', description: 'Optional, e.g. C02' },
   }),
@@ -69,7 +69,22 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
       const r1 = (x: number) => Math.round(x * 10) / 10;
       if (v('registrants')) rows.push({ metric: 'cost_per_registrant_inr', value: r1(v('marketing_spend_inr') / v('registrants')), definition: 'Marketing spend / external registrants' });
       if (v('registered_visitors')) rows.push({ metric: 'cost_per_attendee_inr', value: r1(v('marketing_spend_inr') / v('registered_visitors')), definition: 'Dashboard definition: marketing spend / campaign-driven (registered) verified visitors; walk-ins excluded because no campaign drove them' });
-      return { as_of: ctx.asOf ?? 'all data', rows };
+      // Leaks ranked by attendees they could add back. Walk-ins are NOT a leak: they add attendees.
+      const sr = v('show_rate_pct') / 100 || 0.688;
+      const leaks = [
+        { leak: 'Identified (pre-event) but never registered', people: Math.max(v('identified_pre_event') - v('registrants'), 0), attendees_if_recovered: 0, how: 'people x show rate [A]' },
+        { leak: 'Confirmed but did not attend (no-shows)', people: v('confirmed_no_shows'), attendees_if_recovered: v('confirmed_no_shows'), how: 'already confirmed, each one recovered is one attendee [A]' },
+        { leak: 'Cancelled (latest status)', people: v('cancelled'), attendees_if_recovered: 0, how: 'people x show rate [A]' },
+        { leak: 'Stuck on waitlist (never released)', people: v('waitlisted'), attendees_if_recovered: 0, how: 'people x show rate [A]' },
+      ].map((l) => ({ ...l, attendees_if_recovered: l.attendees_if_recovered || Math.round(l.people * sr) }))
+        .filter((l) => l.people > 0).sort((a, b) => b.attendees_if_recovered - a.attendees_if_recovered);
+      return { as_of: ctx.asOf ?? 'all data', rows, leaks_ranked: leaks,
+        reading_notes: [
+          'There is NO show-rate target. The only benchmark is the red-flag threshold: show rate below 70% is red. 2025 actual show rate is show_rate_pct.',
+          'walk_in_visitors are extra attendees who never registered; they are not a leak and add to verified_visitors.',
+          'verified_visitors = registered_visitors + walk_in_visitors.',
+          'attendees_if_recovered is an upper bound at the 2025 show rate, not a forecast [A].',
+        ] };
     }
     case 'get_channel_kpis': {
       const rows = (await rpc(ctx, 'f_channel_kpis', { p_as_of })) as Record<string, unknown>[];

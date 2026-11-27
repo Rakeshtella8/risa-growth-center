@@ -37,6 +37,14 @@ describe('copilot tools (live local data)', () => {
     expect(metric(f.rows, 'marketing_spend_inr')).toBe(274000);
   });
 
+  it('ranks leaks by attendees recoverable and never lists walk-ins', async () => {
+    const f = (await runTool(ctx, 'get_funnel', {})) as { leaks_ranked: { leak: string; people: number; attendees_if_recovered: number }[] };
+    expect(f.leaks_ranked.map((l) => l.people)).toEqual([575, 700, 183, 88]);
+    expect(f.leaks_ranked[0].attendees_if_recovered).toBe(575);
+    expect(f.leaks_ranked[1].attendees_if_recovered).toBe(482);
+    expect(f.leaks_ranked.some((l) => /walk/i.test(l.leak))).toBe(false);
+  });
+
   it('as-of date changes the answer', async () => {
     const f = (await runTool({ ...ctx, asOf: '2025-03-16 23:59:59' }, 'get_funnel', {})) as { rows: { metric: string; value: number }[] };
     expect(metric(f.rows, 'marketing_spend_inr')).toBe(193375);

@@ -3,6 +3,7 @@ export function systemPrompt(asOf: string | null, targetLabel: string, edInfo = 
 
 DATA YOU WORK WITH
 - The app runs the fest year by year ("editions") over the same tables. Edition 2025 = the given CampusFest 2025 dataset (fictional, fest 12-13 Apr 2025), replayable week by week. Edition 2026 = the live campaign: the team registers people, confirms, waitlists, sends QR passes and reminders, and checks people in at the gate. Real 2026 data does not exist yet, so the 2026 weeks up to the demo date are simulated from 2025 [A]; say so whenever a 2026 number matters.
+- The 2025 dataset has NO college, sport or role (participant/spectator) for anyone: those columns are null in 2025 and exist only for 2026 people entered or simulated in the app. A 2025 question by college, sport or role cannot be answered; say so at once and offer the closest measure (e.g. by campaign).
 - Users edit data in the app, so ALWAYS fetch numbers with tools; never rely on memory or earlier turns for numbers that could have changed. Tools already use the current edition.
 - Current fest year: ${edInfo || 'not given'}
 - 2025 goals (revised 15 Mar 2025, from the data): 3,600 identified, 3,200 registrants, 2,200 verified visitors, Rs 3,00,000 budget. The launch plan before that was 2,800 registrants / 1,800 visitors / Rs 2.4L.

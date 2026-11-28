@@ -266,15 +266,15 @@ create or replace function f_channel_projection(p_as_of timestamp default null, 
 returns table(campaign_id text, registrants int, spend_to_date numeric, share_by_now numeric, projected_registrants int,
               plan_registrants int, budget numeric, projected_cost_per_registrant numeric)
 language sql stable set enable_nestloop = off set jit = off as $$
-  with e as (select * from ed(p_edition)),
-  b as (select * from editions where edition = (select baseline_edition from e)),
-  off as (select ed_cut(p_as_of, (select edition from e)) - (select campaign_start from e)::timestamp d),
-  bl as (select distinct on (person_id) person_id, campaign_id, registered_at from f_registrations(null, (select edition from b))
+  with e as materialized (select * from ed(p_edition)),
+  b as materialized (select * from editions where edition = (select baseline_edition from e)),
+  off as materialized (select (select campaign_start from b)::timestamp + (ed_cut(p_as_of, (select edition from e)) - (select campaign_start from e)::timestamp) upto),
+  bl as materialized (select distinct on (person_id) person_id, campaign_id, registered_at from f_registrations(null, (select edition from b))
          where exists (select 1 from b) order by person_id, registered_at),
-  sh as (select campaign_id, count(*) filter (where registered_at <= (select campaign_start from b)::timestamp + (select d from off))::numeric
-                / nullif(count(*), 0) share from bl group by 1),
-  k as (select * from f_channel_kpis(p_as_of, (select edition from e))),
-  pl as (select * from f_channel_plan((select edition from e)))
+  sh as materialized (select campaign_id, count(*) filter (where registered_at <= off.upto)::numeric
+                / nullif(count(*), 0) share from bl, off group by 1),
+  k as materialized (select * from f_channel_kpis(p_as_of, (select edition from e))),
+  pl as materialized (select * from f_channel_plan((select edition from e)))
   select k.campaign_id, k.registrants, k.spend_inr, round(sh.share, 3),
     case when sh.share > 0 then round(k.registrants / sh.share)::int end,
     round(pl.plan_registrants)::int, pl.budget,
@@ -331,30 +331,31 @@ language sql stable set enable_nestloop = off set jit = off as $$
   -- that had arrived by the same campaign day (registrations are back-loaded). Without one, it adds the
   -- last 21 days' run-rate for the weeks left. Pace compares with the target spread the same way.
   -- Show rate and walk-ins come from the edition settings [A].
-  with e as (select * from ed(p_edition)),
-       f as (select metric, value from f_funnel(p_as_of, (select edition from e))),
-       t as (select * from plan_targets where target_key = coalesce(p_target, (select default_target from e))),
-       r as (select registered_at from f_registrations(p_as_of, (select edition from e))),
-       b as (select * from editions where edition = (select baseline_edition from e)),
-       pl as (select campaign_id, m from f_channel_plan((select edition from e))),
-       bl as (select distinct on (person_id) person_id, registered_at, coalesce(pl.m, 1) m
+  with e as materialized (select * from ed(p_edition)),
+       f as materialized (select metric, value from f_funnel(p_as_of, (select edition from e))),
+       t as materialized (select * from plan_targets where target_key = coalesce(p_target, (select default_target from e))),
+       r as materialized (select registered_at from f_registrations(p_as_of, (select edition from e))),
+       b as materialized (select * from editions where edition = (select baseline_edition from e)),
+       pl as materialized (select campaign_id, m from f_channel_plan((select edition from e))),
+       bl as materialized (select distinct on (person_id) person_id, registered_at, coalesce(pl.m, 1) m
               from f_registrations(null, (select edition from b)) left join pl using (campaign_id)
               where exists (select 1 from b) order by person_id, registered_at),
-       x as (select
+       x as materialized (select
           (select value from f where metric='verified_visitors')::int vis,
           (select value from f where metric='registrants')::int reg,
           (select value from f where metric='marketing_spend_inr') sp,
           (select fest_day1::timestamp + interval '10 hours' from e) ev_at,   -- gates open 10:00 (2025 event start) [D]
           (select fest_day2::timestamp + interval '1 day' from e) ev_end,
           (select campaign_start::timestamp from e) c_start,
+          (select campaign_start::timestamp from b) b_start,
           ed_cut(p_as_of, (select edition from e)) cut,
           (select assumed_show_rate_pct / 100.0 from e) srate,
           (select assumed_walk_ins from e) walk),
-       y as (select x.*, (x.cut >= x.ev_end) post, (x.cut >= x.ev_at and x.cut < x.ev_end) live,
+       y as materialized (select x.*, (x.cut >= x.ev_end) post, (x.cut >= x.ev_at and x.cut < x.ev_end) live,
           greatest(extract(epoch from (x.ev_at - x.cut)) / 604800.0, 0) wleft,
           (select count(*) from r where registered_at > x.cut - interval '21 days') / 3.0 rate,
           greatest(extract(epoch from (x.cut - x.c_start)) / nullif(extract(epoch from (x.ev_at - x.c_start)),0), 0) frac,
-          (select sum(m) filter (where registered_at <= (select campaign_start from b)::timestamp + (x.cut - x.c_start))
+          (select sum(m) filter (where registered_at <= x.b_start + (x.cut - x.c_start))
                   / nullif(sum(m), 0) from bl) share
           from x)
   select t.target_key, t.label, t.verified_attendees, y.vis, y.reg,

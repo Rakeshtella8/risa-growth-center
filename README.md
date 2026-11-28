@@ -5,7 +5,7 @@ It was built for the RISA Labs Growth APM assignment, Challenge A.
 
 **Live app:** https://risa-growth-center-omega.vercel.app · **Repo:** https://github.com/Rakeshtella8/risa-growth-center · **Deck:** `Rakesh_Tella_RISA_Growth_APM.pdf` (3 slides)
 
-The deck and the app use the same numbers. Every target, budget, bet, score and scale / change / stop threshold on the slides is what the app computes or stores; section 9 maps each slide element to the screen that shows it.
+The deck and the app use the same numbers. Every target, budget, bet, score and scale / change / stop threshold on the slides is what the app computes or stores; section 10 maps each slide element to the screen that shows it.
 
 The app runs one loop on a single set of numbers: **Measure → Diagnose → Decide → Execute.**
 
@@ -174,7 +174,7 @@ Browser (React 19 + Vite + Tailwind + Recharts)  ──reads/writes──►  Su
 3. On Vercel, import the repo with the Vite preset and set `GROQ_API_KEY` and `GEMINI_API_KEY` (both free from console.groq.com and aistudio.google.com).
 4. Locally: `npm i`, `npm run dev`. `scripts/dev-chat.ts` serves `/api/chat`; `MOCK_LLM=1` gives a scripted model for offline UI tests. `scripts/dev-postgrest.mjs` emulates the Supabase REST API over a plain local Postgres, which is how the tests below run without a cloud project.
 
-## Demo workflow (insight → decision → task → dashboard)
+## 7. Demo workflow (insight → decision → task → dashboard)
 
 1. Overview, fest year 2026: projected 2,479 attendees vs the 2,670 base target, 97.8% of plan pace. Click **Why the gap?** (or ask the copilot "Are we on track for the base target, and what closes the gap?"). It splits the −191: 139 is bet 1, which is planned but not running yet, and 52 is channels projected 68 registrants short of plan.
 2. Channels: Paid Social is red (projected ₹138.3 vs its ₹137 ceiling); Bets: bet 3 says **stop**.
@@ -182,7 +182,7 @@ Browser (React 19 + Vite + Tailwind + Recharts)  ──reads/writes──►  Su
 4. Click **Confirm & create**. The task appears on Campaigns & tasks with its owner and due date, tagged "from copilot".
 5. Change the data (for example the Creator Partners 2026 budget on Campaigns & tasks, or a spend row on Data) and ask again: the plan, flags, verdicts and the copilot's answer all move. **Reset data** restores the original 2025 data and the 2026 simulation.
 
-## 7. Testing
+## 8. Testing
 
 | Suite | What it checks | Result |
 |---|---|---|
@@ -200,6 +200,7 @@ Browser (React 19 + Vite + Tailwind + Recharts)  ──reads/writes──►  Su
 | 2 | 20 of 33 answered. The `/api/models` check showed two of the Groq models no longer exist and the two Gemini 2.5 models are closed to new users. Switching to Gemini mid-answer broke because of a tool-call signature mismatch. | Rebuilt the chain from the models these keys can actually use. On a provider switch, the data fetched so far is handed over as text. |
 | 3 | **32 of 33 answered.** The one failure was a network drop during a redeploy. There were 0 rate-limit failures. Median response 15 s, 90th percentile 30 s, because the agent waits out free-tier limits. | The fixes below. |
 | 4 | Changed-data test: I added a temporary ₹10,000 Paid Social spend row through the public API, then asked. The copilot answered ₹1,03,000 spend and ₹151.5 per registrant, and bet #3 flipped to **stop**, all correct. I then deleted the row. | — |
+| 5 | Deck-alignment run on 2026 (28 Nov 2026), 13 questions. First pass: 6 of 8 right; it read people-registered-so-far as the forecast, double-counted bet 1 against the gap, and judged channels on cost-to-date. | Forecast now leads with the projection and a gap breakdown; channel flags use projected cost with a stated reason; what-ifs start from the 2026 plan budgets; due dates use the fest-year date. Re-run: 5 of 5 right: gap −191 = 139 (bet 1, not yet running) + 52 (channels 68 registrants short of plan); "move ₹10k Creators → Referrals" = +66.8 attendees with a task proposed for 15 Mar 2026; Paid Social red at ₹138.3 vs ₹136.8; "which college in 2025" and "weather" correctly refused; follow-up "how many more passes for 85%" = 27 (880 − 853). |
 
 Numbers checked against SQL: both-day visitors 725, walk-ins on day 2 45 of 125 (36%), busiest weekday Saturday (441), brochure downloads that never registered 319, top owner Meera Iyer (775 attendees), and cancelled 183. The what-ifs also matched: moving ₹10k from Creators to Referrals adds 67, cutting Paid Social to zero gives 2,120 registrants and 1,710 attendees, and an 80% show rate adds 315.
 The copilot refused ticket revenue, gender and satisfaction, and said what data would be needed for each. It corrected false premises ("we beat 3,200", "Paid Social was cheapest"). It refused the write-SQL and "delete all tasks" prompts.
@@ -215,13 +216,45 @@ Issues the test bank found, now fixed:
 - gpt-oss sometimes leaked its markup. That markup is now stripped from answers.
 
 
-## 8. Limitations (honest)
+## 9. Tools, plans and what was reused
+
+| Tool | Plan | Used for |
+|---|---|---|
+| Supabase (Postgres, REST, row-level security) | Free tier, Mumbai region | Database, metric functions, persistence, reset |
+| Vercel | Hobby (free) | Hosting the web app and the `/api/chat` serverless function; auto-deploys from GitHub `main` |
+| GitHub + GitHub Actions | Free (public repo) | Code, version history, daily keep-alive ping so the free Supabase project doesn't pause |
+| Groq API (`openai/gpt-oss-120b`, `qwen/qwen3.8-27b`, `openai/gpt-oss-20b`) | Free tier | Copilot models with tool calling |
+| Google AI Studio (Gemini Flash-Lite / Flash) | Free tier | Copilot fallback models |
+| Claude Code (Anthropic) | Rakesh's Claude subscription | Pair-programming the app, SQL, tests and analysis scripts |
+| Oria | Rakesh's Oria account | Laying out the 3-slide deck from the content in `analysis/` |
+| React 19, Vite, TypeScript, Tailwind, Recharts, supabase-js, qrcode, Playwright, Vitest, pandas | Open source (MIT / Apache) | UI, charts, QR passes, tests, the Python model |
+
+**Reused as-is:** the open-source libraries above, and the RISA-provided `Attendee_Dataset.xlsx` (loaded unchanged; cleaning happens in SQL). No app template or UI kit was used.
+**Written for this project:** every screen, the SQL metric layer (`supabase/sql`), the copilot agent loop, tools and guardrails (`api/_lib`), the 2026 simulation, the Python target model and diagnosis (`analysis/`), and the tests.
+**Verified:** every 2025 figure against an independent pandas pass (`analysis/diagnose.py`) and `tests/test_views.sh`; the target model's 3,117 / 2,406.5 against the app's what-if engine and `f_channel_plan`; the copilot against the live site (section 8). AI-written code was read, run and tested before it shipped; numbers in the deck were taken from these outputs, not typed by hand.
+
+## 10. Where each slide lives in the app
+
+| Slide element | In the app |
+|---|---|
+| S1 2025 baseline (2,050 attendees, 575 no-shows, 88 waitlisted, 55.5% / 26.8% paid share) | Overview and Channels with fest year **2025** |
+| S1 funnel and targets (3,677 / 3,117 / 2,670; 3,896 / 3,336 / 3,205), budget ₹3L | Overview (target selector), Data → plan targets |
+| S1 channel plan and 1.5× rule | Campaigns & tasks (2026 budgets), Channels → budget what-if |
+| S2 five bets, scores 70.7 / 48.5 / 46.8 / 28.7 / 11.3, owners, budgets | Bets |
+| S3 thresholds (85 / 70%, ₹103 / ₹138, ₹137, 0.25 / 0.10, 300 / 150 RSVPs) | Bets verdicts (live) and Channels flags, both on projected end-of-campaign cost |
+| S3 leading indicators (QR passes ÷ confirmed, weekly registrants, pace) | Overview KPIs, Attendees, pace chart vs plan and vs the same week last year |
+| S3 "How the dashboard and AI decide" | Copilot: diagnose → what-if → propose task → Confirm → Campaigns & tasks |
+
+## 11. Limitations (honest)
 
 - **The data is synthetic** and comes from a generic fest. Its rates are a proxy for a sports fest.
 - **Attribution is not causation.** Channel costs are averages, and the 1.5× marginal-cost rule is an assumption. The sensitivity table shows its effect.
 - **The weakest assumptions** are squad referrals (0.25) and evening walk-ins (+300). They are only in the stretch case, and Bets 4 and 5 test them first.
 - **Free AI tiers have per-minute limits,** so answers take 5–30 s while the agent waits for capacity. Very heavy back-to-back questioning can still exhaust every model; the app then says so instead of guessing. A pay-per-use Groq key, or more models in `GROQ_MODELS` / `GEMINI_MODELS`, removes the wait.
 - **Wording slips remain possible.** The model owns the wording, so it can still mislabel a correct number. That is why every answer shows its queries.
+- **2026 is simulated up to the demo clock (8 Mar 2026).** The weeks so far are generated from the 2025 campaign at the planned budgets [A], so they show the product working, not real 2026 results. The 2025 replay is the untouched original data.
+- **Campaign status (active / paused / stopped) is a label.** It does not yet switch a channel off in the projection; change its 2026 budget for that.
+- **Bets 4 and 5 have no data feed.** Their KPIs (referral ratio, RSVPs) are typed in as readings; the shipped readings are labelled samples.
 - **The demo has no login.** Anyone with the link can edit, which is intended for the review. Reset data undoes any edit. A real deployment would add Supabase Auth and per-role policies.
 
 ---

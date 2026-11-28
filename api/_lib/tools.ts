@@ -22,7 +22,7 @@ export const toolDefs = [
   }),
   fn('get_channel_kpis', 'Per campaign/channel: spend, impressions, clicks, landing sessions, registration starts (reach funnel), identified, registrants, confirmed, cancelled, visitors, show rate %, cost per registrant, cost per visitor, cost ceiling, opt-outs, red/amber/green flag.', {}),
   fn('get_weekly_pace', 'Weekly (Mon-Sun) registrations and spend with cumulative totals and cost per registrant, up to the as-of date.', {}),
-  fn('get_forecast', 'Forecast vs the selected comparison target (or the one given). Before the fest: forecast_attendees counts only people already registered; projected_attendees adds the recent weekly run-rate for the weeks left [A]; pace_pct compares registrants with an even plan to date. Also gap, budget, spend so far.', {
+  fn('get_forecast', 'Forecast vs the selected comparison target (or the one given). Before the fest: forecast_attendees counts only people already registered; projected_registrants / projected_attendees project the season (see note and reading_notes) [A]; pace_pct compares registrants with the plan to date. Also gap, budget, spend so far. Read reading_notes before saying which bet closes a gap.', {
     target_key: { type: 'string', enum: ['2025_goal', '2026_base', '2026_stretch'], description: 'Optional. Defaults to the target selected in the app.' },
   }),
   fn('get_pace_vs_last_year', 'This fest year week by week (campaign week 1 = campaign start) against the same campaign week last year and an even plan to the selected target: registrations per week, cumulative this year, cumulative last year, plan cumulative. Use for "are we ahead of last year?"', {}),
@@ -125,6 +125,12 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
       const key = (args.target_key as string) || ctx.target;
       const fc = (await rpc(ctx, 'f_forecast', { p_as_of, p_target: key, p_edition })) as Record<string, unknown> | Record<string, unknown>[];
       const f = (Array.isArray(fc) ? fc[0] : fc) ?? {};
+      if ('pace_pct' in f && String(f.edition) === '2026') return { ...f, reading_notes: [
+        'projected_registrants and projected_attendees are projections [A], not data [D]. The method is in note: registrants so far divided by the share of the season last year had in by now, weighted by the planned channel budgets.',
+        'The projection already assumes the planned channel budgets run as planned, which is bets 2 and 3 (contingent engine 876 registrants, paid cut to retargeting). Do not count bet 2 or 3 again to close the gap.',
+        'The 2026 base target 2,670 = 2,406 from the channel plan + 125 walk-ins + 139 from bet 1 (show-up programme 63 + waitlist release 76). The projection leaves bet 1 out, so bet 1 is what closes a base gap of about that size. Stretch 3,205 adds bet 1 at +202, bet 4 squad referral +172 and bet 5 pro-nights +300.',
+        'If projected_registrants is below the plan registrants, name the channels behind plan with get_channel_kpis, then the bet that owns them.',
+      ] };
       if (!ctx.asOf || Number(f.open_registrants ?? 0) === 0 || 'pace_pct' in f) return f; // update 2 computes projection + pace in SQL
       // Mid-campaign: the forecast only counts people registered so far, so also report pace against an even
       // weekly plan (12 campaign weeks, 20 Jan - 13 Apr) - that is the fair "on track?" test before the fest.

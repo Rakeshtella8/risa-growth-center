@@ -57,6 +57,17 @@ describe('copilot tools (live local data)', () => {
     expect(Number(a.total)).toBe(f.metrics.waitlisted);
   });
 
+  it('2026 forecast splits the gap between channels and bets left out of the projection', async () => {
+    const c26 = { ...ctx, edition: '2026', target: '2026_base' };
+    const f = (await runTool(c26, 'get_forecast', {})) as { projected_gap: number; gap_breakdown: Record<string, number> };
+    const g = f.gap_breakdown;
+    expect(g.plan_channel_registrants).toBe(3117);
+    expect(g.from_bets_not_in_projection).toBe(-139);
+    expect(Math.abs(g.from_channels_vs_plan + g.from_bets_not_in_projection - f.projected_gap)).toBeLessThanOrEqual(2);
+    const s = (await runTool({ ...c26, target: '2026_stretch' }, 'get_forecast', {})) as { gap_breakdown: Record<string, number> };
+    expect(s.gap_breakdown.from_bets_not_in_projection).toBe(-674);
+  });
+
   it('as-of date changes the answer', async () => {
     const f = (await runTool({ ...ctx, asOf: '2025-03-16 23:59:59' }, 'get_funnel', {})) as { metrics: Record<string, number> };
     expect(metric(f.metrics, 'marketing_spend_inr')).toBe(193375);

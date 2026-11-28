@@ -115,14 +115,15 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
         const pf = projectedFlag(r0 as unknown as ChannelKpi, p);
         const r = hasProj ? { ...r0, cost_per_registrant_so_far: r0.cost_per_registrant, cost_per_registrant: undefined,
           projected_registrants: p?.projected_registrants ?? null, plan_registrants: p?.plan_registrants ?? null, planned_budget: p?.budget ?? null,
-          projected_cost_per_registrant: pf.projected, flag: pf.flag } : r0;
+          projected_cost_per_registrant: pf.projected, flag: pf.flag, flag_reason: pf.reason,
+          show_rate_pct: Number(r0.visitors) > 0 ? r0.show_rate_pct : null } : r0;
         return ({ ...r, owner_name: own.get(String(r.campaign_id)) ?? null,
         share_of_spend_pct: totSpend ? Math.round(Number(r.spend_inr) / totSpend * 1000) / 10 : null,
         share_of_attributed_visitors_pct: totVis ? Math.round(Number(r.visitors) / totVis * 1000) / 10 : null }); });
       const columns = full.length ? Object.keys(full[0]).filter((c) => c !== 'channel' && !(hasProj && c === 'cost_per_registrant')) : [];
       return { as_of: ctx.asOf ?? 'all data',
         note: 'Table: each row lists values in the order of columns. cost_ceiling = max cost per registrant before the channel is flagged red (1.5x its 2025 cost; Paid Social = its 2025 average). A channel is above its ceiling only if cost_per_registrant > cost_ceiling.' + (hasProj
-          ? ' Mid-season (2026): flag and ceiling checks use projected_cost_per_registrant = planned_budget / projected_registrants [A] (same as the Bets screen and Slide 3): red above the ceiling or show rate < 70%, amber within 5% of it, green below. cost_per_registrant_so_far runs high mid-season because spend comes before registrations; do not judge a channel on it.' : ''),
+          ? ' Mid-season (2026): flag and ceiling checks use projected_cost_per_registrant = planned_budget / projected_registrants [A] (same as the Bets screen and Slide 3): red above the ceiling or show rate < 70%, amber within 5% of it, green below. cost_per_registrant_so_far runs high mid-season because spend comes before registrations; do not judge a channel on it. Quote flag_reason. show_rate_pct is null before the fest (nobody has attended yet), which is not a red flag.' : ''),
         columns, rows: full.map((r) => columns.map((c) => (r as Record<string, unknown>)[c])) };
     }
     case 'get_weekly_pace':

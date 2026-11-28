@@ -3,14 +3,19 @@
 A command centre for growing **verified attendance** at an inter-college sports fest in Delhi NCR (host: IIT Delhi).
 It was built for the RISA Labs Growth APM assignment, Challenge A.
 
-**Live app:** https://risa-growth-center-omega.vercel.app
+**Live app:** https://risa-growth-center-omega.vercel.app · **Repo:** https://github.com/Rakeshtella8/risa-growth-center · **Deck:** `Rakesh_Tella_RISA_Growth_APM.pdf` (3 slides)
+
+The deck and the app use the same numbers. Every target, budget, bet, score and scale / change / stop threshold on the slides is what the app computes or stores; section 9 maps each slide element to the screen that shows it.
 
 The app runs one loop on a single set of numbers: **Measure → Diagnose → Decide → Execute.**
 
 | Tab | Job | What you can do |
 |---|---|---|
+| Fest year (header) | Context | **2025 (replay)** is the original RISA dataset, untouched. **2026 (live)** is the campaign being run now: the weeks up to the demo clock (8 Mar 2026) are simulated from 2025 at the deck's planned channel budgets [A], and every simulated row is flagged and removable on the Data tab. |
 | Overview | Measure | Attendees vs target, funnel, weekly pace and the four biggest leaks. Use the **As of** slider to replay the 2025 campaign week by week. Before the fest it shows a forecast; after, the actuals. |
-| Channels | Diagnose | Cost per registrant, show rate and cost per attendee for each channel, with red/amber/green flags. A **budget what-if** moves rupees between channels and shows the attendee impact. |
+| Channels | Diagnose | Cost per registrant (so far and projected to campaign end), show rate and cost per attendee for each channel, with red/amber/green flags against each channel's ceiling. A **budget what-if** moves rupees between channels and shows the attendee impact. |
+| Attendees | Execute | Register people, confirm, waitlist and release, send QR passes and reminders. The public registration page and pass link work too. |
+| Gate | Execute | Scan or type a pass code to admit (each person counts once), admit walk-ins. Live during the fest days. |
 | Bets | Decide | The five 2026 bets, each with a live KPI, its scale / change / stop thresholds and a verdict. Set the status, and log KPI readings for bets the dataset can't measure. |
 | Campaigns & tasks | Execute | Campaign status and 2026 budgets, a spend log, and a task manager linked to bets and campaigns. |
 | Data | Edit / reset | Edit, add or delete raw rows, or upload a CSV. Every number on every tab, and every chatbot answer, recalculates. **Reset data** restores the original 2025 dataset. |
@@ -19,6 +24,17 @@ The app runs one loop on a single set of numbers: **Measure → Diagnose → Dec
 Every number carries a tag: **[D]** comes from the data, **[A]** is an assumption.
 
 ---
+
+## 0. Research: why Delhi NCR and IIT Delhi
+
+| Claim | Source |
+|---|---|
+| Delhi NCR is India's largest metro region, ~5.8 crore people (2011) [S] | [Wikipedia: National Capital Region (India)](https://en.wikipedia.org/wiki/National_Capital_Region_(India)), [Census 2011 urban agglomerations](https://www.census2011.co.in/facts/topurbanpopulation.html) |
+| Deep sports catchment: Khelo India Youth Games 2025, Haryana 2nd, Rajasthan 3rd, Delhi 5th [S] | [AIR News](https://www.newsonair.gov.in/khelo-india-youth-games-2025-ends-maharashtra-tops-with-158-medals), [Wikipedia: 2025 Khelo India Youth Games](https://en.wikipedia.org/wiki/2025_Khelo_India_Youth_Games) |
+| Khelo India University Games 2025: the top 3 were Punjab universities [S] | [AIR News](https://www.newsonair.gov.in/fifth-khelo-india-university-games-conclude-in-jaipur-chandigarh-university-tops-medal-tally) |
+| IIT Delhi: walkable campus, indoor courts, hockey ground, athletics track, open-air theatre of ~2,000–2,500 seats [O] | Rakesh's own site observation (not a published source) |
+
+Tags used everywhere: **[D]** 2025 dataset · **[S]** external source · **[A]** assumption · **[O]** first-hand site observation.
 
 ## 1. The data and how it is counted
 
@@ -46,45 +62,80 @@ The raw sheets are loaded **as is**. The cleaning lives in SQL functions, so edi
 The four leaks, ranked by size: **700** identified but never registered, **575** confirmed no-shows, **183** cancelled and **88** stranded on the waitlist.
 Paid Social and Creators took 55.5% of spend but delivered 26.8% of attributed visitors, at a 50% show rate.
 
-## 2. The 2026 target model (summary)
+## 2. The 2026 target model (detailed calculations)
+
+Full model: [`analysis/target_model.md`](analysis/target_model.md), re-runnable as `python3 analysis/target_model.py` (every assumption is a named constant). The 2025 diagnosis is [`analysis/2025_funnel_diagnosis.md`](analysis/2025_funnel_diagnosis.md) (`analysis/diagnose.py data/Attendee_Dataset.xlsx`).
 
 | | 2025 [D] | Base | Stretch |
 |---|---|---|---|
-| Verified attendees | 2,050 | **2,670** | **3,205** |
-| Registrants | 2,800 | 3,117 | 3,336 |
-| Budget | ₹2.74L | ₹3.00L | ₹3.00L |
+| Landing-page sessions | 24,645 | 27,650 | 27,650 |
+| Identified before the fest | 3,500 | 3,677 | 3,896 |
+| Registrants | 2,800 (80.0%) | 3,117 (84.8%) | 3,336 (85.6%) |
+| Attended from registration | 1,925 (68.8%) | 2,545 (81.7%) | 2,780 (83.3%) |
+| + walk-ins = **verified attendees** | 125 → **2,050** | 125 → **2,670 (+30%)** | 425 → **3,205 (+56%)** |
+| Spend | ₹2,74,000 | ₹3,00,000 | ₹3,00,000 |
+| Cost per campaign-driven attendee | ₹142 (2,74,000 ÷ 1,925) | ₹118 (3,00,000 ÷ 2,545) | ₹108 (3,00,000 ÷ 2,780) |
 
-How the base case is built:
-1. **Reallocate the same ₹3L across channels.** Spend above the 2025 level buys registrants at **1.5× the 2025 average cost** [A], to allow for diminishing returns. Cuts scale proportionally. Each channel keeps its own 2025 show rate [D]. This gives 3,117 registrants and 2,406.5 attendees.
-2. **Add the levers:**
-   - show-up programme: +63 [A]
-   - waitlist auto-release: +76, because 3.14% of registrants were stranded in 2025 [D]
-   - walk-ins: 125 [D]
-3. **Stretch adds** squad referrals (+172 [A]) and sponsor-funded evening pro-nights (+300 walk-ins [A]).
+**Step 1: reallocate the ₹3L across channels.** Spend above the 2025 level buys registrants at **1.5× the 2025 average cost** [A] (diminishing returns); cuts scale down proportionally; each channel keeps its 2025 show rate [D].
 
-Sensitivity: with a 2.0× marginal cost the base falls to 2,450, which still beats 2,200.
-The app reproduces this model exactly: the budget what-if in `src/lib/whatIf.ts` is tested against 2025 (2,800 → 2,050) and against the 2026 engine (3,117 → 2,406.5).
+| Channel | 2025 spend [D] | 2026 plan [A] | Registrants | Show rate [D] | Attendees |
+|---|---|---|---|---|---|
+| College Partnerships (contingent engine) | 31,000 | 75,000 | 876 | 85.6% | 749 |
+| Campus Ambassadors | 42,000 | 60,000 | 669 | 75.0% | 501 |
+| Student Referrals | 19,000 | 40,000 | 608 | 78.6% | 478 |
+| Organic Search | 14,000 | 25,000 | 381 | 78.0% | 297 |
+| Community Groups | 16,000 | 25,000 | 275 | 82.5% | 227 |
+| Paid Social (retargeting only) | 93,000 | 30,000 | 219 | 50.0% | 110 |
+| Creator Partners | 59,000 | 15,000 | 89 | 50.0% | 44 |
+| Show-up programme | – | 30,000 | – | – | step 2 |
+| **Total** | **2,74,000** | **3,00,000** | **3,117** | 77.2% | **2,406** |
 
-## 3. The five bets (Bets tab)
+Worked example (College Partnerships): effective spend = 31,000 + (75,000 − 31,000) ÷ 1.5 = 60,333, i.e. 1.946× 2025. Registrants = 450 × 1.946 = 876. Attendees = 876 × 85.6% = 749.
 
-The score is incremental attendees × confidence ÷ person-weeks [A].
+**Step 2: levers on top.**
 
-| # | Bet | KPI | Read from |
+| Lever | Rule | Base | Stretch |
 |---|---|---|---|
-| 1 | Show-up programme and waitlist auto-release | QR passes downloaded ÷ confirmed | Manual reading |
-| 2 | Contingent engine (college sports committees) | Cost per College Partnerships registrant (scale ≤ ₹103, stop > ₹138) | **Live data** |
-| 3 | Shift paid spend to peer channels | Paid Social cost per registrant vs ₹137 ceiling | **Live data** |
-| 4 | Squad referral | Referred ÷ contingent registrants (scale ≥ 0.25, stop < 0.10) | Manual reading |
-| 5 | Evening pro-nights and IPL screening | Pro-night RSVPs (scale ≥ 300, stop < 150) | Manual reading |
+| Show-up programme (₹30k) | Closes part of each channel's gap to the best show rate (85.6%) [A]: 25% in base, 50% in stretch | +63 | +126 |
+| Waitlist auto-release | 3.14% of 2025 registrants were stranded on the waitlist [D]; released, they attend at the blended show rate | +76 | +76 |
+| Squad referral | +0.25 registrants per contingent registrant [A] at the referral show rate 78.6% [D] | 0 | +172 |
+| Evening pro-nights + IPL screening | Walk-ins 125 [D] + 300 [A] | 0 | +300 |
+| Walk-ins | Same as 2025 [D] | 125 | 125 |
+
+Base = 2,406 + 63 + 76 + 125 = **2,670**. Stretch = 2,406 + 126 + 76 + 172 + 125 + 300 = **3,205**. The model keeps decimals (2,406.5 → 2,406) so that every column and the bridge add up.
+
+**Capacity.** Stretch means ~4,339 person-days (1.354 days per attendee [D]) ≈ 2,170 a day, which fills the 2,000–2,500-seat open-air theatre [O]: the evening venue is the binding constraint. Last year the gate peaked at 400 check-ins in one hour (6 pm, day 1) [D].
+
+**Sensitivity (base).** Marginal cost 1.25× → 2,846; 2.0× → 2,450 (still above last year's 2,200 target); +1 point of show rate → +31; show-up programme has no effect → 2,607.
+
+**How the app uses it.** `campaigns.budget_2026_inr` holds the plan budgets; `f_channel_plan` recomputes the 876 / 669 / 608 / 381 / 275 / 219 / 89 registrants with the same formula (tested: 3,117 total). The budget what-if (`src/lib/whatIf.ts`) reproduces 2025 (2,800 → 2,050) and the 2026 engine (3,117 → 2,406.5). Change a budget and the plan, pace line and projections move.
+
+**How the 2026 projection works [A].** Projected registrants per channel = registrants so far ÷ the share of that channel's 2025 season that had arrived by the same campaign day. Projected attendees = projected registrants × 77.2% + 125 walk-ins. It already assumes bets 2 and 3 (the channel plan) and leaves out bet 1 (+139 base) and, for stretch, bets 4–5. On 8 Mar 2026: 1,203 registrants (97.8% of plan pace), projected 3,049 registrants and 2,479 attendees: −191 vs 2,670, of which 139 is bet 1 (not yet running) and 52 is channels projected 68 registrants short of plan.
+
+## 3. The five bets and the prioritisation framework (Bets tab)
+
+**Score = incremental attendees (stretch) × confidence ÷ effort in person-weeks** [A]. Confidence: 0.8 proven in our data · 0.7 proven parts, untested combination · 0.5 partly evidenced · 0.3 depends on a third party. The weights only set the ranking; contributions are computed in section 2.
+
+| # | Bet | +Attendees base / stretch | Budget | Conf. | Person-weeks | Score | KPI and thresholds (Slide 3) | Read from |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Show-up programme + waitlist auto-release | 139 / 202 | ₹30k | 0.7 | 2 | **70.7** | QR passes ÷ confirmed: ≥ 85% scale · 70–85% change · < 70% or opt-outs > 6.5% of identified stop | **Live data** |
+| 2 | Contingent engine | 364 / 364 | ₹75k | 0.8 | 6 | **48.5** | Projected cost per contingent registrant: ≤ ₹103 and ≥ 88/wk scale · ₹103–138 change · > ₹138 stop | **Live data** |
+| 3 | Shift paid spend to peer channels | 117 / 117 | ₹0 extra | 0.8 | 2 | **46.8** | Projected Paid Social cost per registrant vs ₹137: below scale · within 5% hold · above stop | **Live data** |
+| 4 | Squad referral | 0 / 172 | ₹0 (sponsor rewards) | 0.5 | 3 | **28.7** | Referred ÷ contingent registrants: ≥ 0.25 · 0.10–0.25 · < 0.10 | Team reading |
+| 5 | Evening pro-nights + IPL screening | 0 / 300 | ₹0 (sponsor) | 0.3 | 8 | **11.3** | RSVPs: ≥ 300 scale · 150–300 change · no sponsor by T-6w stop | Team reading |
+
+Base adds 139 + 364 + 117 = **620**; stretch adds **1,155** (2,050 + 364 + 202 + 117 + 172 + 300 = 3,205). Double down on #1 and #2 (+566, backed by our own data). Deprioritise #5 (largest stretch lever, least certain). Reject: scaling paid social (₹274 per attendee, 50% show rate, 117 of 229 opt-outs [D]), a celebrity headliner (high cost, unproven [A]), blanket discounts (don't fix no-shows [A]).
+
+**Why cost thresholds use the projected end-of-campaign cost.** Spend runs ahead of registrations: in 2025 College Partnerships cost ₹137 per registrant by 9 Mar but ₹68.9 at the end [D]. Judging on cost-to-date would stop the best channel mid-season, so the Bets verdicts, the Channels flags and the copilot all use planned budget ÷ projected registrants. Paid Social's plan (₹30,000 ÷ 219 = ₹137) sits exactly on its stop line by design: paid gets no slack, and on 8 Mar it projects ₹138.3, so bet 3 says stop.
 
 ## 4. The copilot (chatbot)
 
 **Grounding.** The model never sees raw tables in its prompt. It calls tools, and the tools run the **same SQL functions the dashboard uses**, so the chat and the screens can't disagree. The tools are:
-- `get_funnel`, `get_channel_kpis`, `get_weekly_pace`, `get_forecast`, `get_targets`
+- `get_funnel`, `get_channel_kpis`, `get_weekly_pace`, `get_channel_trend`, `get_forecast` (with a gap breakdown), `get_pace_vs_last_year`, `get_targets`, `get_attendees`
 - `get_bets`, `list_tasks`, `get_data_dictionary`
 - `run_sql`: ad-hoc read-only SQL
 - `calculate`: a safe arithmetic evaluator, because the model may not do maths in its head
-- `what_if_budget`: the target-model engine
+- `what_if_budget`: the target-model engine (2026 starts from the planned budgets)
 - `propose_task`: proposes a task and never writes it
 
 Each answer has a **"How I got this"** section listing every query, its arguments and its result.
@@ -118,19 +169,27 @@ Browser (React 19 + Vite + Tailwind + Recharts)  ──reads/writes──►  Su
 
 ## 6. Run it yourself
 
-1. Create a Supabase project. In the SQL editor, run `supabase/setup.sql`, which creates the schema and loads the data from this repo, then run `supabase/update_01.sql`.
+1. Create a Supabase project (free tier). In the SQL editor run, in this order: `supabase/setup.sql` (schema, metric functions, loads the 2025 data from this repo over HTTP), then `update_01.sql`, `update_02.sql`, `update_03.sql`, `update_04.sql`, `update_05.sql`, `update_06.sql`. This is the exact sequence the live database was built with; each file ends with a few `check | result` rows to compare (update_06: 3049 · 97.8 · 85.2 · true). The source of every function is in `supabase/sql/01..06`; the update files are generated from them by `scripts/make_update_0*.py`.
 2. Put your Supabase URL and publishable key in `src/lib/supabase.ts` and `api/chat.ts`, or set `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` and `SUPABASE_URL` / `SUPABASE_ANON_KEY`.
-3. On Vercel, import the repo with the Vite preset and set `GROQ_API_KEY` and `GEMINI_API_KEY`. Both are free from console.groq.com and aistudio.google.com.
-4. To develop locally, run `npm i` and then `npm run dev`. `scripts/dev-chat.ts` serves `/api/chat` locally, and `MOCK_LLM=1` gives a scripted model for offline UI tests.
+3. On Vercel, import the repo with the Vite preset and set `GROQ_API_KEY` and `GEMINI_API_KEY` (both free from console.groq.com and aistudio.google.com).
+4. Locally: `npm i`, `npm run dev`. `scripts/dev-chat.ts` serves `/api/chat`; `MOCK_LLM=1` gives a scripted model for offline UI tests. `scripts/dev-postgrest.mjs` emulates the Supabase REST API over a plain local Postgres, which is how the tests below run without a cloud project.
+
+## Demo workflow (insight → decision → task → dashboard)
+
+1. Overview, fest year 2026: projected 2,479 attendees vs the 2,670 base target, 97.8% of plan pace. Click **Why the gap?** (or ask the copilot "Are we on track for the base target, and what closes the gap?"). It splits the −191: 139 is bet 1, which is planned but not running yet, and 52 is channels projected 68 registrants short of plan.
+2. Channels: Paid Social is red (projected ₹138.3 vs its ₹137 ceiling); Bets: bet 3 says **stop**.
+3. Ask: "Move 10k from Creators to Referrals. What would that add, and make it a task." The copilot runs the what-if (+67 attendees [A], from the 2026 plan budgets) and proposes a task.
+4. Click **Confirm & create**. The task appears on Campaigns & tasks with its owner and due date, tagged "from copilot".
+5. Change the data (for example the Creator Partners 2026 budget on Campaigns & tasks, or a spend row on Data) and ask again: the plan, flags, verdicts and the copilot's answer all move. **Reset data** restores the original 2025 data and the 2026 simulation.
 
 ## 7. Testing
 
 | Suite | What it checks | Result |
 |---|---|---|
-| `tests/test_views.sh` (21 checks) | Every audited 2025 number, the as-of behaviour (pre-event forecast mode) and the counting rules | Pass |
-| `vitest` (20 tests) | Calculator, what-if engine (reproduces 2025 and 2026), and tools against a local copy of the database | Pass |
+| `tests/test_views.sh` (39 checks) | Every audited 2025 number, dirty-data rules, edits propagating, reset, as-of behaviour, the 2026 plan (876 / 3,117), the 2026 simulation (1,203 registrants, 97.8% pace, 3,049 projected, ₹85.2 contingent projected cost) | Pass |
+| `vitest` (26 tests) | Calculator, what-if engine (reproduces 2025 and 2026), copilot tools against a local copy of the database, including the gap breakdown (139 / 674) | Pass |
 | Access rules | As anon: deletes rejected, multi-statement SQL rejected, chat_log hidden, loader and http functions blocked, reset works | Pass |
-| UI end-to-end (Playwright) | A data edit flows into the Overview, the as-of slider works, reset restores, and a copilot proposal becomes a task after Confirm | Pass |
+| UI end-to-end (Playwright, `tests/e2e/run.cjs`) | Reset, register a person, waitlist release, public registration and QR pass page, gate admit / repeat scan / walk-in, live fest-day Overview, bet verdicts, 2025 replay, phone width with no horizontal scroll, no console or HTTP errors. A separate run edited a spend row (+₹1,00,000) on Data and saw Channels and Overview move, then restored it | Pass |
 | Live copilot test bank | Facts, can't-answer, false premises, calculations, what-ifs, as-of, ad-hoc SQL, follow-ups, prompt injection, off-topic | See below |
 
 **Live copilot test bank (production site, 27 Nov 2026).** I ran 33 questions, including multi-turn follow-ups, against the deployed app.

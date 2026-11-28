@@ -145,7 +145,14 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
           check: `${channelPart} + ${-notInProjection} = ${channelPart - notInProjection} (projected_gap ${f.projected_gap}; any 1-2 difference is rounding)`,
           how_to_read: 'from_channels_vs_plan = (projected_registrants - plan_channel_registrants) x assumed show rate: negative means channels are projected short of plan. from_bets_not_in_projection = attendees the target expects from bets the projection leaves out (base: bet 1 = 139; stretch: bet 1 202 + bet 4 172 + bet 5 300). Quote both parts when explaining the gap.',
         };
-        return { ...f, gap_breakdown, reading_notes: [
+        // Lead with the season projection; rename the registered-so-far figures so they are not read as the forecast.
+        const { forecast_attendees, gap_to_target, ...rest } = f as Record<string, unknown>;
+        const headline = {
+          target_attendees: target, projected_attendees: f.projected_attendees, projected_gap: f.projected_gap,
+          projected_registrants: projRegs, pace_pct: f.pace_pct,
+          answer_with_these: 'Use projected_attendees and projected_gap for "are we on track / how far off". attendees_from_registered_so_far is NOT a forecast: it only counts people registered by today and ignores the 5 weeks of registrations still to come.',
+        };
+        return { headline, gap_breakdown, ...rest, attendees_from_registered_so_far: forecast_attendees, gap_if_no_one_else_registers: gap_to_target, reading_notes: [
         'projected_registrants and projected_attendees are projections [A], not data [D]. The method is in note: registrants so far divided by the share of the season last year had in by now, weighted by the planned channel budgets.',
         'The projection already assumes the planned channel budgets run as planned, which is bets 2 and 3 (contingent engine 876 registrants, paid cut to retargeting). Do not count bet 2 or 3 again to close the gap.',
         'The 2026 base target 2,670 = 2,406 from the channel plan + 125 walk-ins + 139 from bet 1 (show-up programme 63 + waitlist release 76). The projection leaves bet 1 out, so bet 1 closes 139 of a base gap; the rest is channels short of plan (see gap_breakdown). Stretch 3,205 adds bet 1 at +202, bet 4 squad referral +172 and bet 5 pro-nights +300.',

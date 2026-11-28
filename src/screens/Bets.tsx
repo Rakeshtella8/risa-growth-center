@@ -25,7 +25,7 @@ export default function Bets() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Bets: decide</h1>
+          <h1 className="text-xl font-bold text-slate-900">Bets</h1>
           <p className="text-sm text-slate-500">Score = incremental attendees × confidence ÷ person-weeks [A]. Five bets add +{n0(totalBase)} (base) / +{n0(totalStretch)} (stretch) on top of 2,050. Bets 1–3 read their KPI live from the data; 4–5 from team readings.</p>
         </div>
         <AskButton q="Review all five bets against their thresholds. Which should we scale, change or stop this week, and why?" label="Scale / change / stop?" />
@@ -74,7 +74,8 @@ function BetCard({ b, kpis, weeks, funnel, onChange }: { b: Bet; kpis: ChannelKp
       <div className="flex flex-wrap items-center gap-3">
         <div className="rounded-lg bg-slate-50 px-3 py-2">
           <div className="text-[11px] uppercase text-slate-500">{b.kpi_name}</div>
-          <div className="text-xl font-bold">{ev.value === null ? '–' : n1(ev.value)} <span className="text-xs font-normal text-slate-500">{ev.unit}</span></div>
+          <div className="text-xl font-bold">{ev.value === null ? '–' : (ev.unit.startsWith('₹') ? '₹' : '') + n1(ev.value) + (ev.unit.startsWith('%') ? '%' : '')}{' '}
+            <span className="text-xs font-normal text-slate-500">{ev.unit.replace(/^[₹%]\s*/, '')}</span></div>
           <div className="text-[11px] text-slate-400">{ev.source === 'data' ? <>live from data <Tag t="D" /></> : ev.source === 'manual reading' ? (simulated ? <span className="text-amber-700">simulated sample reading [A]: replace it</span> : `team reading ${b.latest_kpi_date ?? ''}`) : 'no reading yet'}</div>
         </div>
         <span className={`tag text-sm ${verdictClass[ev.verdict]}`}>{ev.verdict.toUpperCase()}</span>

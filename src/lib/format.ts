@@ -19,6 +19,12 @@ export function dateLabel(s: string | null | undefined) {
   return new Date(s.replace(' ', 'T').slice(0, 19)).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 // null as-of = the edition's "today"
+// "11–12 Apr 2026" (or the full form when months differ)
+export function dateRange(a: string, b: string) {
+  const [x, y] = [a, b].map((s) => new Date(s.replace(' ', 'T').slice(0, 19)));
+  if (x.getMonth() === y.getMonth() && x.getFullYear() === y.getFullYear()) return `${x.getDate()}–${dateLabel(b)}`;
+  return `${dateLabel(a)} – ${dateLabel(b)}`;
+}
 export function asOfLabel(asOf: string | null, today?: string) {
   if (!asOf) return today ? `Today, ${dateLabel(today)}` : 'Today';
   return dateLabel(asOf);

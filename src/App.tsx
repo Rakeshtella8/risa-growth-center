@@ -106,7 +106,7 @@ function Dashboard() {
           {tab === 'execution' && <Execution />}
           {tab === 'data' && <DataScreen />}
           <footer className="mt-8 pb-4 text-xs text-slate-400">
-            Data: CampusFest 2025 (fictional dataset supplied by RISA); 2026 weeks to 8 Mar are simulated from it [A] until real 2026 data arrives · [D] data · [A] assumption · 2026 targets from the strategy model · Built by Rakesh Tella
+            Data: CampusFest 2025, a fictional dataset from RISA. The 2026 weeks up to 8 Mar are simulated from it [A]. 2026 targets come from the strategy model. [D] = data, [A] = assumption. Built by Rakesh Tella.
           </footer>
         </main>
         {copilotOpen && <Copilot onClose={() => setCopilotOpen(false)} />}

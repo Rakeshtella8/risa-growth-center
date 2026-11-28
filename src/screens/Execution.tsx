@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useApp, useData } from '../lib/app';
 import { db, audit } from '../lib/supabase';
-import { rs } from '../lib/format';
+import { rs, dateLabel } from '../lib/format';
 import { Task } from '../lib/types';
 import { Section, Loading } from '../components/ui';
 
@@ -34,7 +34,7 @@ export default function Execution() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold text-slate-900">Campaigns & tasks: execute</h1>
+      <h1 className="text-xl font-bold text-slate-900">Campaigns & tasks</h1>
       {err && <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">{err}<button className="btn-ghost text-xs" onClick={() => setErr(null)}>Dismiss</button></div>}
       <div className="grid gap-4 xl:grid-cols-5">
         <div className="space-y-4 xl:col-span-2">
@@ -203,6 +203,7 @@ function NewCampaign({ campaigns, onSaved }: { campaigns: Campaign[]; onSaved: (
 }
 
 function TaskRow({ t, onSaved, onError }: { t: Task; onSaved: () => void; onError: (m: string) => void }) {
+  const { today } = useApp();
   const [edit, setEdit] = useState(false);
   const due = t.due_date ? String(t.due_date).slice(0, 10) : null;
   const [f, setF] = useState({ title: t.title, owner_name: t.owner_name ?? '', due_date: due ?? '', description: t.description ?? '' });
@@ -220,24 +221,28 @@ function TaskRow({ t, onSaved, onError }: { t: Task; onSaved: () => void; onErro
     await audit('tasks', 'delete', String(t.id), t, null);
     onSaved();
   }
-  const overdue = due && t.status !== 'done' && due < new Date().toISOString().slice(0, 10);
+  const overdue = due && t.status !== 'done' && due < today.slice(0, 10);
   return (
     <div className="py-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        <select className={`tag cursor-pointer border-0 ${statusCls[t.status] ?? ''}`} value={t.status} onChange={(e) => patch({ status: e.target.value })} aria-label="Task status">
+      <div className="flex items-start gap-2">
+        <select className={`tag mt-0.5 cursor-pointer border-0 ${statusCls[t.status] ?? ''}`} value={t.status} onChange={(e) => patch({ status: e.target.value })} aria-label="Task status">
           {STATUSES.map((s) => <option key={s}>{s}</option>)}
         </select>
-        <span className={`flex-1 text-sm font-medium ${t.status === 'done' ? 'text-slate-400 line-through' : ''}`}>{t.title}</span>
-        {t.created_by === 'copilot' && <span className="tag bg-amber-100 text-amber-800" title={t.source_question ?? ''}>✦ copilot</span>}
-        {t.bet_id && <span className="tag bg-navy-50 text-navy-700">Bet #{t.bet_id}</span>}
-        {t.campaign_id && <span className="tag bg-slate-100 text-slate-600">{t.campaign_id}</span>}
-        {t.priority === 'high' && <span className="tag bg-red-50 text-red-700">high</span>}
-        <span className="text-xs text-slate-500">{t.owner_name || 'unassigned'}</span>
-        <span className={`text-xs ${overdue ? 'font-semibold text-red-700' : 'text-slate-500'}`}>{due ?? 'no date'}</span>
-        <button className="btn-ghost px-1.5 text-xs" onClick={() => setEdit(!edit)}>{edit ? 'Close' : 'Edit'}</button>
-        <button className="btn-danger px-1.5 text-xs" onClick={remove}>Delete</button>
+        <div className="min-w-0 flex-1">
+          <div className={`text-sm font-medium ${t.status === 'done' ? 'text-slate-400 line-through' : ''}`}>{t.title}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+            {t.created_by === 'copilot' && <span className="tag bg-amber-100 text-amber-800" title={t.source_question ?? ''}>from copilot</span>}
+            {t.bet_id && <span className="tag bg-navy-50 text-navy-700">Bet #{t.bet_id}</span>}
+            {t.campaign_id && <span className="tag bg-slate-100 text-slate-600">{t.campaign_id}</span>}
+            {t.priority === 'high' && <span className="tag bg-red-50 text-red-700">high</span>}
+            <span className="text-xs text-slate-500">{t.owner_name || 'unassigned'}</span>
+            <span className={`text-xs ${overdue ? 'font-semibold text-red-700' : 'text-slate-500'}`}>{due ? (overdue ? 'overdue · ' : 'due ') + dateLabel(due) : 'no date'}</span>
+          </div>
+        </div>
+        <button className="btn-ghost shrink-0 px-1.5 text-xs" onClick={() => setEdit(!edit)}>{edit ? 'Close' : 'Edit'}</button>
+        <button className="btn-danger shrink-0 px-1.5 text-xs" onClick={remove}>Delete</button>
       </div>
-      {t.description && !edit && <p className="mt-1 pl-1 text-xs text-slate-500">{t.description}</p>}
+      {t.description && !edit && <p className="mt-1 pl-[4.5rem] text-xs text-slate-500">{t.description}</p>}
       {edit && (
         <div className="mt-2 grid gap-2 rounded-lg bg-slate-50 p-2 text-sm sm:grid-cols-2">
           <input className="input" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} aria-label="Edit title" />

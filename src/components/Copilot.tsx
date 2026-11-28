@@ -70,7 +70,7 @@ export default function Copilot({ onClose }: { onClose: () => void }) {
     <aside className="fixed inset-0 z-40 flex flex-col bg-white xl:static xl:z-10 xl:w-[440px] xl:shrink-0 xl:border-l xl:border-slate-200">
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
         <div>
-          <div className="font-semibold text-navy-900">✦ Growth analyst & copilot</div>
+          <div className="font-semibold text-navy-900">Copilot</div>
           <div className="text-[11px] text-slate-500">Answers from live data · {ctxLabel}</div>
         </div>
         <div className="flex gap-1">

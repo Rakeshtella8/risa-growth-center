@@ -67,7 +67,7 @@ export default function Attendees() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Attendees: {ed.label}</h1>
+          <h1 className="text-xl font-bold text-slate-900">Attendees</h1>
           <p className="text-sm text-slate-500">Everyone who registered, is on a lead list or came through the gate. Actions are stamped {dateLabel(today)} (today in this fest year) and update every number at once.</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -96,7 +96,7 @@ export default function Attendees() {
       {msg && <p className={`rounded-lg px-3 py-2 text-sm ${msg.startsWith('Error') ? 'bg-red-50 text-red-800' : 'bg-navy-50 text-navy-900'}`} role="status">{msg}</p>}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Kpi label="Registrants" tag="D" value={n0(m('registrants'))} sub={<>{n0(m('participants'))} playing · {n0(m('spectators'))} watching (form)</>} />
+        <Kpi label="Registrants" tag="D" value={n0(m('registrants'))} sub={<>playing {n0(m('participants'))} · watching {n0(m('spectators'))} (asked on the new form only)</>} />
         <Kpi label="Confirmed places" tag="D" value={n0(m('confirmed'))} sub={<CapacityEditor capacity={m('capacity')} edition={edition} onSaved={refresh} />}
           tone={free === 0 ? 'warn' : 'default'} />
         <Kpi label="Waitlisted" tag="D" value={n0(m('waitlisted'))} tone={m('waitlisted') && free ? 'bad' : 'default'}

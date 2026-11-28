@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp, useData } from '../lib/app';
 import { db, rpc, audit } from '../lib/supabase';
-import { n0, dateLabel } from '../lib/format';
+import { n0, dateLabel, dateRange } from '../lib/format';
 import { GateToday } from '../lib/types';
 import { Kpi, Section, Loading } from '../components/ui';
 
@@ -59,8 +59,8 @@ export default function Gate() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-bold text-slate-900">Gate: {ed.label}</h1>
-        <p className="text-sm text-slate-500">Scan the QR pass (or type the pass code) to admit. Only confirmed passes open the gate; each person is counted once a day. Fest days: {dateLabel(ed.fest_day1)} and {dateLabel(ed.fest_day2)}.</p>
+        <h1 className="text-xl font-bold text-slate-900">Gate</h1>
+        <p className="text-sm text-slate-500">Scan a QR pass or type its code. Only confirmed passes get in, and each person is counted once a day. Fest days: {dateRange(ed.fest_day1, ed.fest_day2)}.</p>
       </div>
 
       {!g.gate_open ? (

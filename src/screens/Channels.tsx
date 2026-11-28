@@ -12,7 +12,7 @@ const rate = (a: number | undefined, b: number | undefined) => (a !== undefined 
 const wkLabel = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 
 export default function Channels() {
-  const { asOf, target, edition } = useApp();
+  const { asOf, target, edition, today } = useApp();
   const { data, error } = useData(async () => {
     const [kpis, weekly] = await Promise.all([
       rpc<ChannelKpi[]>('f_channel_kpis', { p_as_of: asOf, p_edition: edition }),
@@ -37,8 +37,8 @@ export default function Channels() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Channels: diagnose</h1>
-          <p className="text-sm text-slate-500">As of <b>{asOfLabel(asOf)}</b>. Attribution = campaign recorded on the registration [D]. Ceiling = 1.5× the channel's 2025 cost per registrant; Paid Social ₹137 [A].</p>
+          <h1 className="text-xl font-bold text-slate-900">Channels</h1>
+          <p className="text-sm text-slate-500">As of <b>{asOfLabel(asOf, today)}</b>. Each registrant counts for the campaign recorded on their registration [D]. Cost ceiling: 1.5× the channel's 2025 cost per registrant, except Paid Social at ₹137 [A].</p>
         </div>
         <AskButton q="Which channels are underperforming and why? Compare cost per visitor, show rate and opt-outs, and say what to scale, change or stop." label="Diagnose channels" />
       </div>
@@ -52,13 +52,13 @@ export default function Channels() {
             <tbody>
               {kpis.map((k) => (
                 <tr key={k.campaign_id} className="border-b border-slate-100 hover:bg-slate-50">
-                  <td className="td font-medium">{k.campaign_name}<div className="text-[11px] text-slate-400">{k.campaign_id} · {k.channel}</div></td>
+                  <td className="td font-medium">{k.campaign_name}<div className="text-[11px] text-slate-400">{k.campaign_id}</div></td>
                   <td className="td"><span className={`tag ${statusCls[k.status] ?? statusCls.active}`}>{k.status ?? 'active'}</span></td>
                   <td className="td">{rs(k.spend_inr)}</td>
                   <td className="td">{n0(k.identified)}</td>
                   <td className="td">{n0(k.registrants)}</td>
                   <td className="td">{n0(k.visitors)}</td>
-                  <td className={`td ${k.show_rate_pct !== null && k.show_rate_pct < 70 ? 'font-semibold text-red-700' : ''}`}>{pct(k.show_rate_pct)}</td>
+                  <td className={`td ${k.visitors && k.show_rate_pct !== null && k.show_rate_pct < 70 ? 'font-semibold text-red-700' : ''}`}>{k.visitors ? pct(k.show_rate_pct) : '–'}</td>
                   <td className="td">{rs1(k.cost_per_registrant)}</td>
                   <td className="td text-slate-500">{rs1(k.cost_ceiling)}</td>
                   <td className="td">{rs1(k.cost_per_visitor)}</td>
@@ -69,7 +69,7 @@ export default function Channels() {
               <tr className="bg-slate-50 font-semibold">
                 <td className="td">Total (attributed)</td><td className="td" /><td className="td">{rs(totals.sp)}</td><td className="td" />
                 <td className="td">{n0(totals.reg)}</td><td className="td">{n0(totals.vis)}</td>
-                <td className="td">{totals.reg ? pct((100 * totals.vis) / totals.reg) : '–'}</td>
+                <td className="td">{totals.reg && totals.vis ? pct((100 * totals.vis) / totals.reg) : '–'}</td>
                 <td className="td">{totals.reg ? rs1(totals.sp / totals.reg) : '–'}</td><td className="td" />
                 <td className="td">{totals.vis ? rs1(totals.sp / totals.vis) : '–'}</td><td className="td" colSpan={2} />
               </tr>
@@ -89,8 +89,9 @@ export default function Channels() {
 function ReachFunnel({ kpis }: { kpis: ChannelKpi[] }) {
   const rows = kpis.filter((k) => (k.impressions ?? 0) > 0 || k.registrants > 0);
   const tot = rows.reduce((a, k) => ({ im: a.im + Number(k.impressions), cl: a.cl + Number(k.clicks), se: a.se + Number(k.sessions ?? 0), st: a.st + Number(k.registration_starts ?? 0), reg: a.reg + k.registrants, vis: a.vis + k.visitors }), { im: 0, cl: 0, se: 0, st: 0, reg: 0, vis: 0 });
-  const cell = (v: number | null, worst: boolean) => <td className={`td ${worst ? 'font-semibold text-red-700' : ''}`}>{v === null ? '–' : pct(v)}</td>;
-  const steps = (k: { im: number; cl: number; se: number; st: number; reg: number; vis: number }) => [rate(k.cl, k.im), rate(k.se, k.cl), rate(k.st, k.se), rate(k.reg, k.st), rate(k.vis, k.reg)];
+  const cell = (v: number | null, worst: boolean) => <td className={`td ${worst && v !== null ? 'font-semibold text-red-700' : ''}`}>{v === null ? '–' : pct(v)}</td>;
+  const anyVisitors = rows.some((k) => k.visitors > 0); // before the fest nobody has attended yet: show '–', not 0%
+  const steps = (k: { im: number; cl: number; se: number; st: number; reg: number; vis: number }) => [rate(k.cl, k.im), rate(k.se, k.cl), rate(k.st, k.se), rate(k.reg, k.st), anyVisitors ? rate(k.vis, k.reg) : null];
   const all = rows.map((k) => steps({ im: Number(k.impressions), cl: Number(k.clicks), se: Number(k.sessions ?? 0), st: Number(k.registration_starts ?? 0), reg: k.registrants, vis: k.visitors }));
   const minIdx = [0, 1, 2, 3, 4].map((i) => { const vals = all.map((r) => r[i] ?? Infinity); return vals.indexOf(Math.min(...vals)); });
   return (
@@ -256,7 +257,7 @@ function WhatIf({ kpis, camps, budget }: { kpis: ChannelKpi[]; camps: { campaign
           {preset === 'plan' && <p className="mt-2 text-xs text-slate-600">These are the channel budgets only ({rs(planSpend)}). The 2026 plan's other levers sit outside channels: show-up programme and waitlist release, about +139 base [A] (see Bets).</p>}
           <button className="btn-primary mt-3 w-full justify-center text-xs" onClick={() => askCopilot(
             `Evaluate this budget plan with what_if_budget: ${JSON.stringify(spend)}. Is it a good reallocation versus 2025? What are the risks, and propose the tasks to execute it.`)}>
-            ✦ Review this plan with copilot
+            Review this plan with copilot
           </button>
           <button className="btn-ghost mt-2 w-full justify-center text-xs" onClick={apply}>Apply as 2026 budgets</button>
           {msg && <p className="mt-1 text-xs text-navy-800">{msg}</p>}

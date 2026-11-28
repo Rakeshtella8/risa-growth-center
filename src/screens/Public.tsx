@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { db, rpc } from '../lib/supabase';
-import { dateLabel } from '../lib/format';
+import { dateRange } from '../lib/format';
 import type { Edition, Attendee } from '../lib/types';
 import { DEFAULT_EDITIONS } from '../lib/app';
 
@@ -80,7 +80,7 @@ export function PassCard({ id, name, status, ed }: { id: string; name?: string; 
       {src ? <img src={src} alt={`QR code for pass ${id}`} className="mx-auto my-2 h-52 w-52" /> : <div className="my-2 h-52" />}
       <div className="font-mono text-sm tracking-wider">{id}</div>
       {status && <span className={`tag mt-2 ${statusCls[status] ?? 'bg-slate-100'}`}>{status}</span>}
-      {ed && <div className="mt-2 text-xs text-slate-500">{dateLabel(ed.fest_day1)} – {dateLabel(ed.fest_day2)} · IIT Delhi · gates 10:00</div>}
+      {ed && <div className="mt-2 text-xs text-slate-500">{dateRange(ed.fest_day1, ed.fest_day2)} · IIT Delhi · gates open 10:00</div>}
       {status === 'waitlisted' && <p className="mt-2 text-xs text-amber-800">You're on the waitlist. We'll confirm you as soon as a place frees up.</p>}
       {status === 'cancelled' && <p className="mt-2 text-xs text-red-700">This registration is cancelled and won't open the gate.</p>}
     </div>
@@ -116,7 +116,7 @@ export function RegisterPage() {
       {!done ? (
         <div className="card p-4">
           <h1 className="text-lg font-bold">Register for {ed.label.replace(/ \(.*\)/, '')}</h1>
-          <p className="mb-3 text-sm text-slate-500">{dateLabel(ed.fest_day1)} – {dateLabel(ed.fest_day2)} at IIT Delhi. Inter-college sport, evening pro-nights.</p>
+          <p className="mb-3 text-sm text-slate-500">{dateRange(ed.fest_day1, ed.fest_day2)} at IIT Delhi. Inter-college sport by day, pro-nights in the evening.</p>
           <RegisterForm edition={ed.edition} campaigns={campaigns} fixedCampaign={c} onDone={(r, n) => { setDone(r); setName(n); }} />
         </div>
       ) : (

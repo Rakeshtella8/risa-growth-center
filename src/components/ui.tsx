@@ -35,7 +35,8 @@ export function Section({ title, children, right, sub }: { title: string; childr
 
 export function AskButton({ q, label = 'Ask copilot' }: { q: string; label?: string }) {
   const { askCopilot } = useApp();
-  return <button className="btn-ghost text-xs text-navy-700" onClick={() => askCopilot(q)} title={q}>✦ {label}</button>;
+  return <button className="btn-ghost text-xs text-navy-700" onClick={() => askCopilot(q)} title={q}>
+    <svg aria-hidden="true" viewBox="0 0 16 16" className="mr-1 inline h-3.5 w-3.5 -translate-y-px fill-none stroke-current" strokeWidth="1.5"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" strokeLinejoin="round" /></svg>{label}</button>;
 }
 
 export function Loading({ error }: { error?: string | null }) {

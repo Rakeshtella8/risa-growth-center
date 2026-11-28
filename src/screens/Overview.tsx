@@ -33,7 +33,7 @@ export default function Overview() {
   const funnelRows = [
     { stage: 'Identified', v: m('identified_pre_event') },
     { stage: 'Registered', v: m('registrants') },
-    { stage: 'Confirmed (latest status)', v: m('confirmed') },
+    { stage: 'Confirmed', v: m('confirmed') },
     ...(pre ? [{ stage: 'QR pass opened', v: m('qr_passes_downloaded') }] : [
       { stage: 'Attended (registered)', v: m('registered_visitors') },
       { stage: '+ Walk-ins', v: m('walk_in_visitors') },
@@ -55,7 +55,7 @@ export default function Overview() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">{ed.label}: overview</h1>
+          <h1 className="text-xl font-bold text-slate-900">Overview</h1>
           <p className="text-sm text-slate-500">
             As of <b>{asOfLabel(asOf, today)}</b> · {pre ? <><b>{n0(daysToFest)} days</b> to the fest ({dateLabel(ed.fest_day1)})</> : live ? <b>Fest in progress</b> : <>Fest held {dateLabel(ed.fest_day1)}</>}
             {' '}· compared with <b>{t.label}</b> ({n0(t.verified_attendees)} attendees, {rs(t.budget_inr)} budget)
@@ -65,15 +65,15 @@ export default function Overview() {
       </div>
       {edition === '2026' && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          Real 2026 data does not exist yet, so the weeks up to {dateLabel(ed.demo_clock)} are <b>simulated</b> from the 2025 campaign with assumed channel changes [A].
-          Every registration, status change and check-in you make here is real and counts at once. Remove the simulated rows on the Data screen.
+          There is no real 2026 data yet. The weeks up to {dateLabel(ed.demo_clock)} are <b>simulated</b> from the 2025 campaign with assumed channel changes [A].
+          Registrations, status changes and check-ins you make here are real and count at once. The Data screen can remove the simulated rows.
         </p>
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi label={attendeeLabel} tag={pre || live ? 'A' : 'D'} value={n0(headline)} tone={headGap >= 0 ? 'good' : 'bad'}
           sub={<>{headGap >= 0 ? '+' : ''}{n0(headGap)} vs target {n0(f.target_attendees)}{pre && f.projected_attendees !== undefined
-            ? <> · {n0(f.forecast_attendees)} from people already registered, + {n1(f.recent_weekly_registrations)} registrations/week for {n1(f.weeks_to_event)} more weeks</>
+            ? <> · {n0(f.forecast_attendees)} from people already registered, plus about {n0(f.recent_weekly_registrations)} registrations a week for the {n1(f.weeks_to_event)} weeks left</>
             : live ? <> · {n0(f.actual_visitors)} verified so far</> : null}</>} />
         <Kpi label="External registrants" tag="D" value={n0(m('registrants'))} tone={pre ? ((f.pace_pct ?? 0) >= 100 ? 'good' : 'bad') : 'default'}
           sub={pre ? <>{pct(f.pace_pct ?? 0)} of plan pace ({n0(f.expected_registrants_by_now)} by now){vsLast !== null && <> · {vsLast >= 0 ? '+' : ''}{n1(vsLast)}% vs same week last year ({n0(lastYear)})</>}</>
@@ -88,7 +88,8 @@ export default function Overview() {
               sub={<>{n0(m('qr_passes_downloaded'))} of {n0(m('confirmed'))} confirmed · Bet 1 scales at 85%</>} />
           : <Kpi label="Cost per attendee" tag="D" value={!m('registered_visitors') ? '–' : rs(m('marketing_spend_inr') / m('registered_visitors'))} sub="spend ÷ campaign-driven attendees" />}
       </div>
-      <p className="text-xs text-slate-500">{f.note}</p>
+      <p className="text-xs text-slate-500">{pre ? <>Projected attendees = people registered so far × {n1(ed.assumed_show_rate_pct)}% show rate + {n0(ed.assumed_walk_ins)} walk-ins, plus registrations at the last 3 weeks' pace until the fest [A].</>
+        : live ? <>Fest in progress. Forecast = the larger of people verified so far [D] and registrants × {n1(ed.assumed_show_rate_pct)}% show rate + {n0(ed.assumed_walk_ins)} walk-ins [A].</> : <>Final count of people verified at the gate [D].</>}</p>
 
       <div className="grid gap-4 xl:grid-cols-5">
         <div className="xl:col-span-3">
@@ -132,7 +133,7 @@ export default function Overview() {
         </div>
       </div>
 
-      <Section title="Where people leak" sub="The cheapest attendees are people we already have [D]. Act on them in Attendees."
+      <Section title="Where people leak" sub="People who stopped short of the next stage [D]. Click a card to work on them in Attendees."
         right={<AskButton q="Rank the funnel leaks by size and tell me which one to fix first, with numbers." label="Which leak first?" />}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {leaks.map((l) => (

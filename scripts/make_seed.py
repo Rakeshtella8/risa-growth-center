@@ -40,8 +40,8 @@ def main(xlsx, out):
 truncate plan_targets;
 insert into plan_targets values
  ('2025_goal','2025 revised goal',3600,3200,2200,300000,'Targets sheet, revised plan 15 Mar 2025 [D]'),
- ('2026_base','2026 base plan',3677,3117,2670,300000,'analysis/target_model.py base case [A]'),
- ('2026_stretch','2026 stretch plan',3896,3336,3205,300000,'analysis/target_model.py stretch case [A]');
+ ('2026_base','2026 base plan',3677,3117,2670,300000,'Strategy model, base case [A]'),
+ ('2026_stretch','2026 stretch plan',3896,3336,3205,300000,'Strategy model, stretch case [A]');
 """)
     o.append('commit;')
     open(out, 'w').write('\n'.join(o) + '\n')

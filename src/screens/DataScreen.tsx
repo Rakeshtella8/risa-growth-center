@@ -109,7 +109,7 @@ export default function DataScreen() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-bold text-slate-900">Data: edit, upload, reset</h1>
+        <h1 className="text-xl font-bold text-slate-900">Data</h1>
         <p className="text-sm text-slate-500">These are the raw tables for every fest year: the 2025 data as RISA supplied it (duplicates and internal/test people left in), the simulated 2026 weeks [A] and everything you add on the Attendees and Gate screens. The metric layer cleans it on every read, so edits here flow straight into every chart and every copilot answer. Use <b>Reset data</b> (top bar) to restore the original.</p>
       </div>
       <Section title={`${cfg.label} · ${n0(data?.count ?? 0)} rows`}
@@ -258,8 +258,8 @@ function ChangeHistory() {
               {data.map((a) => (
                 <tr key={a.id} className="border-b border-slate-100 align-top">
                   <td className="whitespace-nowrap px-2 py-1 text-slate-500">{new Date(a.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
-                  <td className="px-2 py-1">{a.table_name}</td>
-                  <td className="px-2 py-1">{a.action}</td>
+                  <td className="px-2 py-1">{a.table_name === '*' ? 'all tables' : a.table_name}</td>
+                  <td className="px-2 py-1">{a.action.replace(/_/g, ' ')}</td>
                   <td className="px-2 py-1 text-slate-500">{a.row_ref}</td>
                   <td className="px-2 py-1 text-slate-500">{brief(a.old_value)}</td>
                   <td className="px-2 py-1">{brief(a.new_value)}</td>

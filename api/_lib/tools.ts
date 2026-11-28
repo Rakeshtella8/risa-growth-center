@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { projectPlan, ChannelBase, MARGINAL_MULT } from '../../src/lib/whatIf.js';
 import { evaluate } from './calc.js';
 import { evaluateBet } from '../../src/lib/bets.js';
-import type { Bet, ChannelKpi, ChannelWeek } from '../../src/lib/types.js';
+import type { Bet, ChannelKpi, ChannelProjection, ChannelWeek, FunnelRow } from '../../src/lib/types.js';
 
 export interface Ctx {
   db: SupabaseClient;
@@ -157,10 +157,11 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
     case 'get_bets': {
       // Same verdict logic as the Bets screen: bets 2 and 3 read their KPI live from channel data,
       // bets 1, 4 and 5 use the latest KPI reading the team entered.
-      const [{ data, error }, kpis, weeks] = await Promise.all([ctx.db.from('v_bet_status').select('*'), rpc(ctx, 'f_channel_kpis', { p_as_of, p_edition }), rpc(ctx, 'f_channel_weekly', { p_as_of, p_edition }).catch(() => [])]);
+      const [{ data, error }, kpis, weeks, funnel, proj] = await Promise.all([ctx.db.from('v_bet_status').select('*'), rpc(ctx, 'f_channel_kpis', { p_as_of, p_edition }),
+        rpc(ctx, 'f_channel_weekly', { p_as_of, p_edition }).catch(() => []), rpc(ctx, 'f_funnel', { p_as_of, p_edition }), rpc(ctx, 'f_channel_projection', { p_as_of, p_edition }).catch(() => [])]);
       if (error) throw new Error(error.message);
       return { as_of: ctx.asOf ?? 'all data', bets: (data as Bet[]).map((b) => {
-        const e = evaluateBet(b, kpis as ChannelKpi[], weeks as ChannelWeek[]);
+        const e = evaluateBet(b, kpis as ChannelKpi[], weeks as ChannelWeek[], funnel as FunnelRow[], proj as ChannelProjection[]);
         return { bet_id: b.bet_id, name: b.name, owner_name: b.owner_name, status: b.status, kpi_name: b.kpi_name,
           kpi_value: e.value, kpi_unit: e.unit, kpi_source: e.source === 'manual reading' && /simulated/i.test(b.latest_kpi_note ?? '') ? 'SIMULATED sample reading, not real data [A]' : e.source, verdict: e.verdict, thresholds: e.why,
           scale_if: b.scale_if, change_if: b.change_if, stop_if: b.stop_if, base_attendees: b.base_attendees, stretch_attendees: b.stretch_attendees,

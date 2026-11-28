@@ -73,7 +73,8 @@ export default function Overview() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi label={attendeeLabel} tag={pre || live ? 'A' : 'D'} value={n0(headline)} tone={headGap >= 0 ? 'good' : 'bad'}
           sub={<>{headGap >= 0 ? '+' : ''}{n0(headGap)} vs target {n0(f.target_attendees)}{pre && f.projected_attendees !== undefined
-            ? <> · {n0(f.forecast_attendees)} from people already registered, plus about {n0(f.recent_weekly_registrations)} registrations a week for the {n1(f.weeks_to_event)} weeks left</>
+            ? (hasBase ? <> · registrants on course for {n0(f.projected_registrants)} (plan {n0(t.registrants)})</>
+              : <> · {n0(f.forecast_attendees)} from people already registered, plus about {n0(f.recent_weekly_registrations)} registrations a week for the {n1(f.weeks_to_event)} weeks left</>)
             : live ? <> · {n0(f.actual_visitors)} verified so far</> : null}</>} />
         <Kpi label="External registrants" tag="D" value={n0(m('registrants'))} tone={pre ? ((f.pace_pct ?? 0) >= 100 ? 'good' : 'bad') : 'default'}
           sub={pre ? <>{pct(f.pace_pct ?? 0)} of plan pace ({n0(f.expected_registrants_by_now)} by now){vsLast !== null && <> · {vsLast >= 0 ? '+' : ''}{n1(vsLast)}% vs same week last year ({n0(lastYear)})</>}</>
@@ -88,13 +89,15 @@ export default function Overview() {
               sub={<>{n0(m('qr_passes_downloaded'))} of {n0(m('confirmed'))} confirmed · Bet 1 scales at 85%</>} />
           : <Kpi label="Cost per attendee" tag="D" value={!m('registered_visitors') ? '–' : rs(m('marketing_spend_inr') / m('registered_visitors'))} sub="spend ÷ campaign-driven attendees" />}
       </div>
-      <p className="text-xs text-slate-500">{pre ? <>Projected attendees = people registered so far × {n1(ed.assumed_show_rate_pct)}% show rate + {n0(ed.assumed_walk_ins)} walk-ins, plus registrations at the last 3 weeks' pace until the fest [A].</>
+      <p className="text-xs text-slate-500">{pre ? (hasBase
+          ? <>Projected attendees = projected registrants × {n1(ed.assumed_show_rate_pct)}% show rate (the plan's channel mix) + {n0(ed.assumed_walk_ins)} walk-ins [A]. Registrants are projected from how much of last year's season had arrived by this point, weighted by the planned channel budgets.{t.target_key.startsWith('2026') && <> The {n0(t.verified_attendees)} target also counts the show-up programme and waitlist release (bet 1, +{t.target_key === '2026_stretch' ? 202 : 139}), which this projection leaves out.</>}</>
+          : <>Projected attendees = people registered so far × {n1(ed.assumed_show_rate_pct)}% show rate + {n0(ed.assumed_walk_ins)} walk-ins, plus registrations at the last 3 weeks' pace until the fest [A].</>)
         : live ? <>Fest in progress. Forecast = the larger of people verified so far [D] and registrants × {n1(ed.assumed_show_rate_pct)}% show rate + {n0(ed.assumed_walk_ins)} walk-ins [A].</> : <>Final count of people verified at the gate [D].</>}</p>
 
       <div className="grid gap-4 xl:grid-cols-5">
         <div className="xl:col-span-3">
           <Section title={hasBase ? 'Registrations: this year vs same week last year' : 'Registrations vs plan'}
-            sub={`Bars: new external registrants per campaign week [D]. Teal: cumulative this year.${hasBase ? ' Grey dashed: cumulative at the same week last year [D].' : ''} Amber dashed: even pace to ${n0(t.registrants)} registrants [A].`}
+            sub={`Bars: new external registrants per campaign week [D]. Teal: cumulative this year.${hasBase ? ' Grey dashed: cumulative at the same week last year [D].' : ''} ${hasBase ? ` Amber dashed: plan pace to ${n0(t.registrants)} registrants, following last year's season curve weighted by the planned channel budgets [A].` : ` Amber dashed: even pace to ${n0(t.registrants)} registrants [A].`}`}
             right={<AskButton q="Compare this year's registrations with the same week last year and the plan. Which channel explains the difference?" label="Why the gap?" />}>
             <div className="h-72">
               <ResponsiveContainer>

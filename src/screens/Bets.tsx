@@ -2,20 +2,21 @@ import { useState } from 'react';
 import { useApp, useData } from '../lib/app';
 import { rpc, db, audit } from '../lib/supabase';
 import { n0, n1, rs } from '../lib/format';
-import { Bet, ChannelKpi, ChannelWeek, FunnelRow } from '../lib/types';
+import { Bet, ChannelKpi, ChannelProjection, ChannelWeek, FunnelRow } from '../lib/types';
 import { evaluateBet, verdictClass, readingRange } from '../lib/bets';
 import { Section, AskButton, Loading, Tag } from '../components/ui';
 
 export default function Bets() {
   const { asOf, refresh, edition } = useApp();
   const { data, error } = useData(async () => {
-    const [bets, kpis, weeks, funnel] = await Promise.all([
+    const [bets, kpis, weeks, funnel, proj] = await Promise.all([
       db.from('v_bet_status').select('*').then((r) => { if (r.error) throw r.error; return r.data as Bet[]; }),
       rpc<ChannelKpi[]>('f_channel_kpis', { p_as_of: asOf, p_edition: edition }),
       rpc<ChannelWeek[]>('f_channel_weekly', { p_as_of: asOf, p_edition: edition }).catch(() => [] as ChannelWeek[]),
       rpc<FunnelRow[]>('f_funnel', { p_as_of: asOf, p_edition: edition }),
+      rpc<ChannelProjection[]>('f_channel_projection', { p_as_of: asOf, p_edition: edition }).catch(() => [] as ChannelProjection[]),
     ]);
-    return { bets, kpis, weeks, funnel };
+    return { bets, kpis, weeks, funnel, proj };
   }, [asOf]);
   if (!data) return <Loading error={error} />;
   const totalBase = data.bets.reduce((a, b) => a + b.base_attendees, 0);
@@ -31,14 +32,14 @@ export default function Bets() {
         <AskButton q="Review all five bets against their thresholds. Which should we scale, change or stop this week, and why?" label="Scale / change / stop?" />
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        {data.bets.map((b) => <BetCard key={b.bet_id} b={b} kpis={data.kpis} weeks={data.weeks} funnel={data.funnel} onChange={refresh} />)}
+        {data.bets.map((b) => <BetCard key={b.bet_id} b={b} kpis={data.kpis} weeks={data.weeks} funnel={data.funnel} proj={data.proj} onChange={refresh} />)}
       </div>
     </div>
   );
 }
 
-function BetCard({ b, kpis, weeks, funnel, onChange }: { b: Bet; kpis: ChannelKpi[]; weeks: ChannelWeek[]; funnel: FunnelRow[]; onChange: () => void }) {
-  const ev = evaluateBet(b, kpis, weeks, funnel);
+function BetCard({ b, kpis, weeks, funnel, proj, onChange }: { b: Bet; kpis: ChannelKpi[]; weeks: ChannelWeek[]; funnel: FunnelRow[]; proj: ChannelProjection[]; onChange: () => void }) {
+  const ev = evaluateBet(b, kpis, weeks, funnel, proj);
   const [reading, setReading] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);

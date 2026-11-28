@@ -111,7 +111,7 @@ create table if not exists editions (
   demo_clock timestamp);                               -- "today" for this edition when the real date is outside its window
 insert into editions values
  ('2025','CampusFest 2025 (replay)','2025-01-01','2025-05-31 23:59:59','2025-01-20','2025-04-12','2025-04-13',2500,68.8,125,'2025_goal',null,'2025-04-20 23:59:59'),
- ('2026','CampusFest 2026 (live)','2026-01-01','2026-05-31 23:59:59','2026-01-19','2026-04-11','2026-04-12',3000,68.8,125,'2026_base','2025','2026-03-08 23:59:59')
+ ('2026','CampusFest 2026 (live)','2026-01-01','2026-05-31 23:59:59','2026-01-19','2026-04-11','2026-04-12',3000,77.2,125,'2026_base','2025','2026-03-08 23:59:59')
 on conflict (edition) do nothing;
 alter table app_settings add column if not exists edition text not null default '2026';
 

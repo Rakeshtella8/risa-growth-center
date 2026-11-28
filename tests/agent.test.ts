@@ -49,11 +49,11 @@ describe('copilot tools (live local data)', () => {
     const c26 = { ...ctx, edition: '2026' };
     const p = (await runTool(c26, 'get_pace_vs_last_year', {})) as { columns: string[]; rows: unknown[][] };
     const wk7 = p.rows.find((r) => r[0] === 7)!;
-    expect(wk7[p.columns.indexOf('cumulative')]).toBe(1136);
+    expect(wk7[p.columns.indexOf('cumulative')]).toBe(1203);
     expect(wk7[p.columns.indexOf('last_cumulative')]).toBe(1348);
     const a = (await runTool(c26, 'get_attendees', { status: 'waitlisted' })) as { total: number; rows: unknown[][] };
     const f = (await runTool(c26, 'get_funnel', {})) as { metrics: Record<string, number> };
-    expect(f.metrics.registrants).toBe(1136);
+    expect(f.metrics.registrants).toBe(1203);
     expect(Number(a.total)).toBe(f.metrics.waitlisted);
   });
 

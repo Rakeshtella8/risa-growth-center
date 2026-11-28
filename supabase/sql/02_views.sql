@@ -240,7 +240,52 @@ language sql stable set enable_nestloop = off set jit = off as $$
 $$;
 create or replace view v_weekly_pace as select * from f_weekly_pace(cfg_as_of(), null);
 
--- This year against the same campaign week last year (baseline edition) and against an even plan.
+-- Channel plan for an edition with a baseline year, built the way analysis/target_model.py builds the deck's plan [A]:
+-- spend above last year's buys registrants at 1.5x last year's cost, cuts scale down proportionally.
+-- m = plan registrants / last year's registrants for the channel. Used to weight last year's season curve
+-- by the planned channel mix (cutting front-loaded paid social shifts registrations later in the season).
+create or replace function f_channel_plan(p_edition text default null)
+returns table(campaign_id text, base_spend numeric, base_registrants int, budget numeric, plan_registrants numeric, m numeric)
+language sql stable set enable_nestloop = off set jit = off as $$
+  with e as (select * from ed(p_edition)),
+  k as (select * from f_channel_kpis(null, (select baseline_edition from e)) where (select baseline_edition from e) is not null)
+  select k.campaign_id, k.spend_inr, k.registrants, c.budget_2026_inr,
+    k.registrants * x.eff / k.spend_inr, x.eff / k.spend_inr
+  from k join campaigns c on c.campaign_id = k.campaign_id,
+  lateral (select case when c.budget_2026_inr > k.spend_inr then k.spend_inr + (c.budget_2026_inr - k.spend_inr) / 1.5
+                       else c.budget_2026_inr end::numeric eff) x
+  where k.spend_inr > 0 and k.registrants > 0 and c.budget_2026_inr is not null
+$$;
+
+-- Per-channel projection to the end of the campaign (editions with a baseline year) [A]:
+-- projected registrants = registrants so far / the share of that channel's registrants last year had by the same
+-- campaign day; projected cost per registrant = the channel's plan budget / projected registrants. This is the
+-- deck's yardstick (e.g. contingent ₹75,000 / 876 = ₹85.6). Cost-to-date is misleading mid-season because spend
+-- runs ahead of registrations (2025 College Partnerships: ₹137 by 9 Mar, ₹68.9 at the end) [D].
+create or replace function f_channel_projection(p_as_of timestamp default null, p_edition text default null)
+returns table(campaign_id text, registrants int, spend_to_date numeric, share_by_now numeric, projected_registrants int,
+              plan_registrants int, budget numeric, projected_cost_per_registrant numeric)
+language sql stable set enable_nestloop = off set jit = off as $$
+  with e as (select * from ed(p_edition)),
+  b as (select * from editions where edition = (select baseline_edition from e)),
+  off as (select ed_cut(p_as_of, (select edition from e)) - (select campaign_start from e)::timestamp d),
+  bl as (select distinct on (person_id) person_id, campaign_id, registered_at from f_registrations(null, (select edition from b))
+         where exists (select 1 from b) order by person_id, registered_at),
+  sh as (select campaign_id, count(*) filter (where registered_at <= (select campaign_start from b)::timestamp + (select d from off))::numeric
+                / nullif(count(*), 0) share from bl group by 1),
+  k as (select * from f_channel_kpis(p_as_of, (select edition from e))),
+  pl as (select * from f_channel_plan((select edition from e)))
+  select k.campaign_id, k.registrants, k.spend_inr, round(sh.share, 3),
+    case when sh.share > 0 then round(k.registrants / sh.share)::int end,
+    round(pl.plan_registrants)::int, pl.budget,
+    case when sh.share > 0 and k.registrants > 0 then round(pl.budget / (k.registrants / sh.share), 1) end
+  from k join sh on sh.campaign_id = k.campaign_id left join pl on pl.campaign_id = k.campaign_id
+$$;
+
+-- This year against the same campaign week last year (baseline edition) and against the plan.
+-- Plan pace = the target spread over the weeks like last year's registrations, weighted by the planned channel mix
+-- (f_channel_plan), because registrations are back-loaded and differ by channel;
+-- an even spread only when there is no baseline year.
 -- Week 1 starts on the edition's campaign_start; registrations before it count in week 1.
 create or replace function f_pace_compare(p_as_of timestamp default null, p_edition text default null, p_target text default null)
 returns table(week_no int, week_start date, registrations int, cumulative int,
@@ -254,15 +299,20 @@ language sql stable set enable_nestloop = off set jit = off as $$
   wk as (select g wn, (select campaign_start from e) + 7*(g-1) ws from generate_series(1, (select n from n)) g),
   cur as (select greatest((registered_at::date - (select campaign_start from e)) / 7 + 1, 1) wn, count(distinct person_id) k
           from f_registrations(p_as_of, (select edition from e)) group by 1),
-  prev as (select greatest((registered_at::date - (select campaign_start from b)) / 7 + 1, 1) wn, count(distinct person_id) k
-           from f_registrations(null, (select edition from b)) where exists (select 1 from b) group by 1)
+  pl as (select campaign_id, m from f_channel_plan((select edition from e))),
+  bp as (select distinct on (person_id) person_id, campaign_id, registered_at from f_registrations(null, (select edition from b))
+         where exists (select 1 from b) order by person_id, registered_at),
+  prev as (select greatest((registered_at::date - (select campaign_start from b)) / 7 + 1, 1) wn, count(*) k,
+                  sum(coalesce(pl.m, 1)) wk from bp left join pl using (campaign_id) group by 1)
   select wk.wn, wk.ws,
     case when wk.ws <= (select d from c) then coalesce(cur.k,0)::int end,
     case when wk.ws <= (select d from c) then (sum(coalesce(cur.k,0)) over (order by wk.wn))::int end,
     case when exists (select 1 from b) then (select campaign_start from b) + 7*(wk.wn-1) end,
     case when exists (select 1 from b) then coalesce(prev.k,0)::int end,
     case when exists (select 1 from b) then (sum(coalesce(prev.k,0)) over (order by wk.wn))::int end,
-    round((select registrants from t) * wk.wn::numeric / (select n from n))::int
+    case when (select sum(wk) from prev) > 0
+         then round((select registrants from t) * (sum(coalesce(prev.wk,0)) over (order by wk.wn)) / (select sum(wk) from prev))::int
+         else round((select registrants from t) * wk.wn::numeric / (select n from n))::int end
   from wk left join cur on cur.wn = wk.wn left join prev on prev.wn = wk.wn
   order by wk.wn
 $$;
@@ -276,13 +326,20 @@ returns table(target_key text, target_label text, target_attendees int, actual_v
   projected_attendees int, projected_gap int, target_registrants int, expected_registrants_by_now int, pace_pct numeric,
   edition text, today timestamp, fest_day1 date)
 language sql stable set enable_nestloop = off set jit = off as $$
-  -- Before the fest: "so far" forecast (people already registered) AND a projection that adds the
-  -- recent run-rate (last 21 days) for the weeks left. Show rate and walk-ins come from the edition settings [A].
-  -- Pace = registrants vs an even weekly plan from campaign start to the fest.
+  -- Before the fest: "so far" forecast (people already registered) AND a projection of final registrants.
+  -- With a baseline year the projection is seasonal: registrants so far / the share of last year's registrants
+  -- that had arrived by the same campaign day (registrations are back-loaded). Without one, it adds the
+  -- last 21 days' run-rate for the weeks left. Pace compares with the target spread the same way.
+  -- Show rate and walk-ins come from the edition settings [A].
   with e as (select * from ed(p_edition)),
        f as (select metric, value from f_funnel(p_as_of, (select edition from e))),
        t as (select * from plan_targets where target_key = coalesce(p_target, (select default_target from e))),
        r as (select registered_at from f_registrations(p_as_of, (select edition from e))),
+       b as (select * from editions where edition = (select baseline_edition from e)),
+       pl as (select campaign_id, m from f_channel_plan((select edition from e))),
+       bl as (select distinct on (person_id) person_id, registered_at, coalesce(pl.m, 1) m
+              from f_registrations(null, (select edition from b)) left join pl using (campaign_id)
+              where exists (select 1 from b) order by person_id, registered_at),
        x as (select
           (select value from f where metric='verified_visitors')::int vis,
           (select value from f where metric='registrants')::int reg,
@@ -296,7 +353,9 @@ language sql stable set enable_nestloop = off set jit = off as $$
        y as (select x.*, (x.cut >= x.ev_end) post, (x.cut >= x.ev_at and x.cut < x.ev_end) live,
           greatest(extract(epoch from (x.ev_at - x.cut)) / 604800.0, 0) wleft,
           (select count(*) from r where registered_at > x.cut - interval '21 days') / 3.0 rate,
-          greatest(extract(epoch from (x.cut - x.c_start)) / nullif(extract(epoch from (x.ev_at - x.c_start)),0), 0) frac
+          greatest(extract(epoch from (x.cut - x.c_start)) / nullif(extract(epoch from (x.ev_at - x.c_start)),0), 0) frac,
+          (select sum(m) filter (where registered_at <= (select campaign_start from b)::timestamp + (x.cut - x.c_start))
+                  / nullif(sum(m), 0) from bl) share
           from x)
   select t.target_key, t.label, t.verified_attendees, y.vis, y.reg,
     case when y.post then 0 else y.reg end,
@@ -306,17 +365,21 @@ language sql stable set enable_nestloop = off set jit = off as $$
     t.budget_inr, y.sp,
     case when y.post then 'Event has happened: forecast = actual verified visitors [D]'
          when y.live then 'Fest in progress: ' || y.vis || ' verified so far [D]; forecast_attendees = the larger of that and registrants x ' || round(y.srate*100,1) || '% + ' || y.walk || ' walk-ins [A].'
+         when y.share > 0 then 'Pre-event. forecast_attendees = registrants so far x ' || round(y.srate*100,1) || '% + ' || y.walk || ' walk-ins (people already registered only). projected_registrants = registrants so far / ' || round(y.share*100,1) || '% (the share of planned registrants that last year''s curve, weighted by the planned channel mix, had in by the same campaign day) [A].'
          else 'Pre-event. forecast_attendees = registrants so far x ' || round(y.srate*100,1) || '% + ' || y.walk || ' walk-ins (people already registered only). projected_attendees adds the last 21 days'' weekly run-rate for the weeks left before the fest [A].' end,
     case when y.post then null else round(y.rate,1) end,
     case when y.post then 0 else round(y.wleft,1) end,
-    case when y.post then y.reg else round(y.reg + y.rate*y.wleft)::int end,
-    case when y.post then y.vis else greatest(y.vis, round((y.reg + y.rate*y.wleft)*y.srate + y.walk)::int) end,
-    (case when y.post then y.vis else greatest(y.vis, round((y.reg + y.rate*y.wleft)*y.srate + y.walk)::int) end) - t.verified_attendees,
+    case when y.post then y.reg else round(y.preg)::int end,
+    case when y.post then y.vis else greatest(y.vis, round(y.preg*y.srate + y.walk)::int) end,
+    (case when y.post then y.vis else greatest(y.vis, round(y.preg*y.srate + y.walk)::int) end) - t.verified_attendees,
     t.registrants,
-    case when y.post or y.live then t.registrants else round(t.registrants * least(y.frac,1))::int end,
-    case when y.post or y.live or y.frac is null or y.frac = 0 then null else round(100.0 * y.reg / nullif(t.registrants * least(y.frac,1),0),1) end,
+    case when y.post or y.live then t.registrants else round(t.registrants * y.pfrac)::int end,
+    case when y.post or y.live or coalesce(y.pfrac,0) = 0 then null else round(100.0 * y.reg / nullif(t.registrants * y.pfrac,0),1) end,
     (select edition from e), y.cut, (select fest_day1 from e)
-  from t, y
+  from t, (select y0.*,
+              case when y0.share > 0 and not y0.live then greatest(y0.reg / y0.share, y0.reg) else y0.reg + y0.rate*y0.wleft end preg,
+              case when y0.share is not null then least(y0.share, 1) else least(y0.frac, 1) end pfrac
+            from y y0) y
 $$;
 create or replace view v_forecast as select * from f_forecast(cfg_as_of(), null, null);
 

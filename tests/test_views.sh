@@ -60,14 +60,18 @@ check unlisted_campaign_listed 1 "$(Q "begin; insert into daily_marketing(activi
 # 7. Update 3: editions, simulated 2026 weeks, attendee actions
 f26() { Q "select value from f_funnel(null,'2026') where metric='$1'"; }
 Q "select reset_to_original()" >/dev/null
-check sim_2026_registrants 1136 "$(f26 registrants)"
-check sim_2026_pace 61.3 "$(Q "select pace_pct from f_forecast(null,null,'2026')")"
+check sim_2026_registrants 1203 "$(f26 registrants)"
+check sim_2026_pace 97.8 "$(Q "select pace_pct from f_forecast(null,null,'2026')")"
 check same_week_last_year 1348 "$(Q "select last_cumulative from f_pace_compare(null,'2026') where week_no=7")"
+check plan_mix_contingent 876 "$(Q "select round(plan_registrants) from f_channel_plan('2026') where campaign_id='C04'")"
+check plan_mix_total 3117 "$(Q "select round(sum(plan_registrants)) from f_channel_plan('2026')")"
+check sim_projected_registrants 3049 "$(Q "select projected_registrants from f_forecast(null,null,'2026')")"
+check contingent_projected_cost 85.2 "$(Q "select projected_cost_per_registrant from f_channel_projection(null,'2026') where campaign_id='C04'")"
 check editions_do_not_mix 2800 "$(fm null registrants)"
-check register_adds_one 1137 "$(Q "select register_person('Test Person','X College','spectator',null,'C05','2026')->>'status'" >/dev/null; f26 registrants)"
+check register_adds_one 1204 "$(Q "select register_person('Test Person','X College','spectator',null,'C05','2026')->>'status'" >/dev/null; f26 registrants)"
 check gate_closed_pre_event closed "$(Q "do \$\$ begin perform check_in('x','manual','2026'); exception when others then raise notice 'closed'; end \$\$" 2>&1 | grep -o closed | head -1)"
 check remove_simulated 1 "$(Q "select remove_simulated()" >/dev/null; f26 registrants)"
 Q "select reset_to_original()" >/dev/null
-check reset_restores_sim 1136 "$(f26 registrants)"
+check reset_restores_sim 1203 "$(f26 registrants)"
 
 echo "$pass passed, $fail failed"; [ $fail -eq 0 ]

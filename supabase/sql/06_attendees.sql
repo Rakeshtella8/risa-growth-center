@@ -270,12 +270,19 @@ begin
   select * into e from editions where edition = '2026';
   cut := e.demo_clock;
   perform remove_simulated();
-  create temp table _m(campaign_id text primary key, m numeric) on commit drop;
-  -- registrations multiplier per channel vs 2025 [A]: paid and creators cut, partnerships and referrals pushed
-  insert into _m values ('C01',1.15),('C02',0.50),('C03',0.40),('C04',1.60),('C05',1.35),('C06',1.10),('C07',1.10);
-  create temp table _sp on commit drop as
-    -- spend follows the volume multiplier, ~8% less efficient than 2025 (paid social 15%) [A]
-    select campaign_id, m * case when campaign_id = 'C02' then 1.15 else 1.08 end ratio from _m;
+  -- The simulation runs the deck's base plan (analysis/target_model.py) [A]:
+  --   m     = 2026 plan registrants / 2025 registrants per channel (e.g. College Partnerships 876 / 450)
+  --   ratio = 2026 channel budget / 2025 spend (e.g. 75,000 / 31,000); spend keeps 2025's weekly timing
+  create temp table _m(campaign_id text primary key, m numeric, ratio numeric) on commit drop;
+  insert into _m values
+    ('C01', 669/520.0, 60000/42000.0),   -- Campus Ambassadors
+    ('C02', 219/680.0, 30000/93000.0),   -- Paid Social, retargeting only
+    ('C03',  89/350.0, 15000/59000.0),   -- Creator Partners
+    ('C04', 876/450.0, 75000/31000.0),   -- College Partnerships -> contingent engine
+    ('C05', 608/350.0, 40000/19000.0),   -- Student Referrals
+    ('C06', 381/250.0, 25000/14000.0),   -- Organic Search
+    ('C07', 275/200.0, 25000/16000.0);   -- Community Groups
+  create temp table _sp on commit drop as select campaign_id, m, ratio from _m;
   create temp table _p on commit drop as
     select p.*, g.k, 'S' || g.k || '-' || p.person_id new_pid
     from (select distinct on (person_id) * from people
@@ -320,8 +327,8 @@ begin
   insert into daily_marketing(activity_id, campaign_id, campaign_name, owner_id, owner_name, activity_date, impressions, clicks,
                               reported_reach, landing_page_sessions, registration_starts, marketing_spend_inr, platform, is_simulated)
     select 'S-' || d.activity_id, d.campaign_id, d.campaign_name, d.owner_id, d.owner_name, d.activity_date + sh,
-      round(d.impressions * s.ratio), round(d.clicks * s.ratio), round(d.reported_reach * s.ratio),
-      round(d.landing_page_sessions * s.ratio), round(d.registration_starts * s.ratio), round(d.marketing_spend_inr * s.ratio),
+      round(d.impressions * s.m), round(d.clicks * s.m), round(d.reported_reach * s.m),
+      round(d.landing_page_sessions * s.m), round(d.registration_starts * s.m), round(d.marketing_spend_inr * s.ratio),
       d.platform, true
     from (select distinct on (activity_id) * from daily_marketing where not is_simulated
           and activity_date between '2025-01-01' and '2025-05-31' order by activity_id, row_id) d

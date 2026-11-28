@@ -1,7 +1,7 @@
 // Scale / change / stop verdicts for the 5 bets, using the thresholds on Slide 3.
 // Bets 2 and 3 read their KPI live from the data, bet 1 too once QR passes are issued; bets 4 and 5 use the latest KPI reading entered by the team
 // (their KPIs, e.g. QR passes or RSVPs, are not in the 2025 dataset).
-import type { Bet, ChannelKpi, ChannelWeek, FunnelRow } from './types';
+import type { Bet, ChannelKpi, ChannelProjection, ChannelWeek, FunnelRow } from './types';
 
 export type Verdict = 'scale' | 'change' | 'stop' | 'no data';
 export interface BetEval { value: number | null; unit: string; source: 'data' | 'manual reading' | 'none'; verdict: Verdict; why: string }
@@ -13,8 +13,12 @@ export function weeklyVolume(weeks: ChannelWeek[] | undefined, campaignId: strin
   return w.length ? w.reduce((a, x) => a + Number(x.registrations), 0) / w.length : null;
 }
 
-export function evaluateBet(b: Bet, kpis: ChannelKpi[], weeks?: ChannelWeek[], funnel?: FunnelRow[]): BetEval {
+export function evaluateBet(b: Bet, kpis: ChannelKpi[], weeks?: ChannelWeek[], funnel?: FunnelRow[], proj?: ChannelProjection[]): BetEval {
   const ch = (id: string) => kpis.find((k) => k.campaign_id === id);
+  // With a baseline year, bets 2 and 3 use the projected end-of-campaign cost per registrant (plan budget ÷ projected
+  // registrants), the yardstick the deck's ₹103 / ₹137 / ₹138 thresholds were set on. Cost-to-date runs high mid-season
+  // because spend comes before registrations (2025 College Partnerships: ₹137 by 9 Mar, ₹68.9 at the end).
+  const pj = (id: string) => proj?.find((p) => p.campaign_id === id && p.projected_cost_per_registrant !== null);
   const manual = b.latest_kpi_value;
   switch (b.bet_id) {
     case 1: {
@@ -28,6 +32,16 @@ export function evaluateBet(b: Bet, kpis: ChannelKpi[], weeks?: ChannelWeek[], f
       return { value: manual, unit: '%', source: 'manual reading', ...band(manual, 85, 70, 'higher'), why: '≥ 85% scale · 70–85% change · < 70% stop' };
     }
     case 2: {
+      const p = pj('C04');
+      if (p) {
+        const v = Number(p.projected_cost_per_registrant); const n = Number(p.projected_registrants);
+        const unit = '₹ per registrant, projected at campaign end';
+        const volText = `on course for ${n} registrants (plan ${p.plan_registrants}, i.e. 88 a week)`;
+        if (v > 138) return { value: v, unit, source: 'data', verdict: 'stop', why: `Above ₹138 → move spend to referrals · ${volText}` };
+        if (v > 103) return { value: v, unit, source: 'data', verdict: 'change', why: `₹103–138 → narrow to top-converting colleges · ${volText}` };
+        if (n >= 876) return { value: v, unit, source: 'data', verdict: 'scale', why: `≤ ₹103 and ${volText} → add colleges` };
+        return { value: v, unit, source: 'data', verdict: 'change', why: `Cost is fine (≤ ₹103) but ${volText}, short of the 876 needed → add colleges only after volume holds` };
+      }
       const c = ch('C04'); const v = c?.cost_per_registrant ?? null;
       if (v === null) return none('No College Partnerships registrants yet.');
       const vol = weeklyVolume(weeks, 'C04');
@@ -39,8 +53,15 @@ export function evaluateBet(b: Bet, kpis: ChannelKpi[], weeks?: ChannelWeek[], f
     }
     case 3: {
       // Ceiling ₹137 per registrant for Paid Social. Within 5% below it counts as "at ceiling" (hold).
-      const c = ch('C02'); const v = c?.cost_per_registrant ?? null;
+      const p = pj('C02');
+      const c = ch('C02'); const v = p ? Number(p.projected_cost_per_registrant) : c?.cost_per_registrant ?? null;
       if (v === null) return none('No Paid Social registrants yet.');
+      if (p) {
+        const unit = '₹ per registrant (Paid Social), projected at campaign end';
+        if (v > 137) return { value: v, unit, source: 'data', verdict: 'stop', why: `Paid above the ₹137 ceiling → cut paid to zero (plan: ₹30,000 ÷ ${p.plan_registrants} = ₹${Math.round(30000 / Number(p.plan_registrants))}, right at the line)` };
+        if (v >= 137 * 0.95) return { value: v, unit, source: 'data', verdict: 'change', why: 'Paid within 5% of the ₹137 ceiling → hold, do not move more money yet' };
+        return { value: v, unit, source: 'data', verdict: 'scale', why: 'Paid more than 5% below the ₹137 ceiling → keep shifting budget to peer channels' };
+      }
       if (v > 137) return { value: v, unit: '₹ per registrant (Paid Social)', source: 'data', verdict: 'stop', why: 'Paid above the ₹137 ceiling → cut paid to zero' };
       if (v >= 137 * 0.95) return { value: v, unit: '₹ per registrant (Paid Social)', source: 'data', verdict: 'change', why: 'Paid within 5% of the ₹137 ceiling → hold, do not move more money yet' };
       return { value: v, unit: '₹ per registrant (Paid Social)', source: 'data', verdict: 'scale', why: 'Paid more than 5% below the ₹137 ceiling → keep shifting budget to peer channels' };
@@ -51,7 +72,11 @@ export function evaluateBet(b: Bet, kpis: ChannelKpi[], weeks?: ChannelWeek[], f
     }
     case 5: {
       if (manual === null) return none('Enter pro-night RSVPs as a KPI reading.');
-      return { value: manual, unit: 'RSVPs', source: 'manual reading', ...band(manual, 300, 150, 'higher'), why: '≥ 300 scale · 150–300 change · < 150 or no sponsor by T-6w stop' };
+      // Slide 3: ≥ 300 scale, 150–300 change; the only stop rule is "no sponsor by T-6w", which RSVPs cannot show.
+      const why = '≥ 300 scale · 150–300 change · stop only if no sponsor by T-6w';
+      if (manual >= 300) return { value: manual, unit: 'RSVPs', source: 'manual reading', verdict: 'scale', why };
+      if (manual >= 150) return { value: manual, unit: 'RSVPs', source: 'manual reading', verdict: 'change', why };
+      return { value: manual, unit: 'RSVPs', source: 'manual reading', verdict: 'change', why: 'Below 150: push via contingents. The deck stops this bet only if no sponsor signs by T-6w' };
     }
   }
   return none('Unknown bet');

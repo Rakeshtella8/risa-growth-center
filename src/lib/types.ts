@@ -15,6 +15,7 @@ export interface Forecast {
   projected_gap?: number; target_registrants?: number; expected_registrants_by_now?: number; pace_pct?: number | null;
   edition?: string; today?: string; fest_day1?: string;
 }
+export interface ChannelProjection { campaign_id: string; registrants: number; spend_to_date: number; share_by_now: number | null; projected_registrants: number | null; plan_registrants: number | null; budget: number | null; projected_cost_per_registrant: number | null }
 export interface ChannelWeek { week_start: string; campaign_id: string; registrations: number; spend_inr: number; cost_per_registrant: number | null }
 export interface AuditRow { id: number; table_name: string; row_ref: string | null; action: string; old_value: unknown; new_value: unknown; created_at: string }
 export interface PlanTarget { target_key: string; label: string; identified: number; registrants: number; verified_attendees: number; budget_inr: number; source: string }

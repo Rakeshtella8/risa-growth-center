@@ -49,7 +49,7 @@ revoke execute on all functions in schema public from public, anon, authenticate
 grant execute on function cfg_as_of(), ed(text), ed_clock(text), ed_cut(timestamp, text), ed_suffix(text),
   f_registrations(timestamp, text), f_visitors(timestamp, text), f_spend(timestamp, text), f_people(timestamp, text),
   f_funnel(timestamp, text), f_channel_kpis(timestamp, text), f_weekly_pace(timestamp, text), f_channel_weekly(timestamp, text),
-  f_pace_compare(timestamp, text, text), f_forecast(timestamp, text, text),
+  f_pace_compare(timestamp, text, text), f_forecast(timestamp, text, text), f_channel_plan(text), f_channel_projection(timestamp, text),
   f_attendees(text, text, text, int, int), f_person_timeline(text), f_gate_today(text),
   reg_status(text, text), confirmed_count(text), gate_open(editions)
   to anon, authenticated;
@@ -84,7 +84,7 @@ revoke select on chat_log, audit_log from copilot_ro;
 grant execute on function cfg_as_of(), ed(text), ed_clock(text), ed_cut(timestamp, text), ed_suffix(text),
   f_registrations(timestamp, text), f_visitors(timestamp, text), f_spend(timestamp, text), f_people(timestamp, text),
   f_funnel(timestamp, text), f_channel_kpis(timestamp, text), f_weekly_pace(timestamp, text), f_channel_weekly(timestamp, text),
-  f_pace_compare(timestamp, text, text), f_forecast(timestamp, text, text),
+  f_pace_compare(timestamp, text, text), f_forecast(timestamp, text, text), f_channel_plan(text), f_channel_projection(timestamp, text),
   f_attendees(text, text, text, int, int), f_person_timeline(text), f_gate_today(text),
   reg_status(text, text), confirmed_count(text), gate_open(editions)
   to copilot_ro;

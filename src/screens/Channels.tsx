@@ -198,7 +198,7 @@ function WhatChanged({ kpis, weekly }: { kpis: ChannelKpi[]; weekly: ChannelWeek
 const MAX_PER_CHANNEL = 300000;
 
 function WhatIf({ kpis, camps, budget }: { kpis: ChannelKpi[]; camps: { campaign_id: string; budget_2026_inr: number | null; status: string }[]; budget: number }) {
-  const { askCopilot, refresh } = useApp();
+  const { askCopilot, refresh, edition } = useApp();
   // only campaigns with 2025 history can be projected; new or unlisted campaigns have no baseline yet
   const base: ChannelBase[] = useMemo(() => kpis.filter((k) => Number(k.spend_inr) > 0 && k.registrants > 0).map((k) => ({
     campaign_id: k.campaign_id, campaign_name: k.campaign_name, spend_2025: Number(k.spend_inr), registrants_2025: k.registrants,
@@ -210,8 +210,9 @@ function WhatIf({ kpis, camps, budget }: { kpis: ChannelKpi[]; camps: { campaign
     const c = camps.find((x) => x.campaign_id === b.campaign_id);
     return [b.campaign_id, c?.status === 'stopped' ? 0 : c?.budget_2026_inr ?? b.spend_2025];
   }));
-  const [spend, setSpend] = useState<Record<string, number>>(spend2025);
-  const [preset, setPreset] = useState<'2025' | 'plan' | 'custom'>('2025');
+  // In the live fest year start from the 2026 plan budgets; in the 2025 replay start from what was spent.
+  const [spend, setSpend] = useState<Record<string, number>>(edition === '2025' ? spend2025 : plan2026);
+  const [preset, setPreset] = useState<'2025' | 'plan' | 'custom'>(edition === '2025' ? '2025' : 'plan');
   const [msg, setMsg] = useState('');
   const set = (id: string, v: number) => { setPreset('custom'); setSpend({ ...spend, [id]: Math.min(MAX_PER_CHANNEL, Math.max(0, Math.round(Number.isFinite(v) ? v : 0))) }); };
   const before = projectPlan(base, {});

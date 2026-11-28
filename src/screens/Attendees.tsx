@@ -96,14 +96,14 @@ export default function Attendees() {
       {msg && <p className={`rounded-lg px-3 py-2 text-sm ${msg.startsWith('Error') ? 'bg-red-50 text-red-800' : 'bg-navy-50 text-navy-900'}`} role="status">{msg}</p>}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Kpi label="Registrants" tag="D" value={n0(m('registrants'))} sub={<>playing {n0(m('participants'))} · watching {n0(m('spectators'))} (asked on the new form only)</>} />
+        <Kpi label="Registrants" tag="D" value={n0(m('registrants'))} sub={m('participants') + m('spectators') > 0 ? <>playing {n0(m('participants'))} · watching {n0(m('spectators'))}</> : <>playing / watching not recorded{edition === '2025' ? ' in the 2025 data' : ''}</>} />
         <Kpi label="Confirmed places" tag="D" value={n0(m('confirmed'))} sub={<CapacityEditor capacity={m('capacity')} edition={edition} onSaved={refresh} />}
           tone={free === 0 ? 'warn' : 'default'} />
         <Kpi label="Waitlisted" tag="D" value={n0(m('waitlisted'))} tone={m('waitlisted') && free ? 'bad' : 'default'}
           sub={<><span>{n0(free)} places free</span>{m('waitlisted') > 0 && free > 0 && !closed && <button className="ml-2 text-navy-700 underline" disabled={busy} onClick={() => bulk('release')}>release now</button>}</>} />
-        <Kpi label="QR passes opened" tag="D" value={m('confirmed') ? pct((100 * m('qr_passes_downloaded')) / m('confirmed')) : '–'}
-          tone={m('confirmed') && (100 * m('qr_passes_downloaded')) / m('confirmed') >= 85 ? 'good' : 'bad'}
-          sub={<>{n0(m('qr_passes_issued'))} sent · {n0(noPass)} confirmed without one{noPass > 0 && !closed && <button className="ml-2 text-navy-700 underline" disabled={busy} onClick={() => bulk('passes')}>send</button>}</>} />
+        <Kpi label="QR passes opened" tag="D" value={m('confirmed') && m('qr_passes_issued') ? pct((100 * m('qr_passes_downloaded')) / m('confirmed')) : '–'}
+          tone={!m('qr_passes_issued') ? 'default' : (100 * m('qr_passes_downloaded')) / m('confirmed') >= 85 ? 'good' : 'bad'}
+          sub={edition === '2025' && !m('qr_passes_issued') ? <>QR passes are new in 2026; the 2025 data has none</> : <>{n0(m('qr_passes_issued'))} sent · {n0(noPass)} confirmed without one{noPass > 0 && !closed && <button className="ml-2 text-navy-700 underline" disabled={busy} onClick={() => bulk('passes')}>send</button>}</>} />
         <Kpi label="Reminders logged" tag="D" value={n0(m('reminders_sent'))}
           sub={!closed ? <button className="text-navy-700 underline" disabled={busy} onClick={() => bulk('reminders')}>remind all confirmed</button> : 'fest is over'} />
       </div>

@@ -148,7 +148,7 @@ export default function Overview() {
           ))}
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          Participants: {n0(m('participants'))} · spectators: {n0(m('spectators'))} (role recorded on the registration form) · reminders sent: {n0(m('reminders_sent'))}
+          {m('participants') + m('spectators') > 0 ? <>Participants: {n0(m('participants'))} · spectators: {n0(m('spectators'))} (from the registration form) · </> : <>Participant / spectator split not recorded in this data · </>}reminders sent: {n0(m('reminders_sent'))}
           {' '}· cost per registrant: {m('registrants') ? '₹' + n1(m('marketing_spend_inr') / m('registrants')) : '–'}
           {!pre && <> · attendees on both days: {n0(m('multi_day_visitors'))} · walk-ins: {n0(m('walk_in_visitors'))}</>}
         </p>

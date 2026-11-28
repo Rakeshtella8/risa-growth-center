@@ -27,7 +27,8 @@ export default function Bets() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Bets</h1>
-          <p className="text-sm text-slate-500">Score = incremental attendees × confidence ÷ person-weeks [A]. Five bets add +{n0(totalBase)} (base) / +{n0(totalStretch)} (stretch) on top of 2,050. Bets 1–3 read their KPI live from the data; 4–5 from team readings.</p>
+          <p className="text-sm text-slate-500">Score = incremental attendees (stretch) × confidence ÷ person-weeks [A]. Five bets add +{n0(totalBase)} (base) / +{n0(totalStretch)} (stretch) on top of 2,050. Bets 1–3 read their KPI live from the data; 4–5 from team readings.</p>
+          {edition === '2025' && <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-xs text-amber-900">These are the 2026 bets. In the 2025 replay they show what the same thresholds would have said on last year's data (a back-test); switch the fest year to 2026 for the live verdicts.</p>}
         </div>
         <AskButton q="Review all five bets against their thresholds. Which should we scale, change or stop this week, and why?" label="Scale / change / stop?" />
       </div>

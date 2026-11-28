@@ -392,7 +392,7 @@ create trigger tasks_touch before update on tasks for each row execute function 
 -- One sample reading per manual bet so the scale / change / stop logic is visible. Clearly marked as simulated;
 -- type a real reading on the Bets screen to replace it.
 insert into bet_kpi_readings (bet_id, reading_date, value, note)
-select v.bet_id, current_date, v.value, 'Simulated sample reading [A]: replace with the real figure'
+select v.bet_id, date '2026-03-08', v.value, 'Simulated sample reading [A]: replace with the real figure'
 from (values (1, 78), (4, 0.27), (5, 120)) v(bet_id, value)
 where not exists (select 1 from bet_kpi_readings k where k.bet_id = v.bet_id);
 

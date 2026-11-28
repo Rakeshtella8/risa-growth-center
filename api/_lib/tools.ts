@@ -147,13 +147,16 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
         const planAtt = Math.round(planRegs * show + walk);
         const channelPart = Math.round((projRegs - planRegs) * show);
         const notInProjection = target - planAtt;
+        const betsText = key === '2026_stretch' ? 'bet 1 show-up and waitlist (+202), bet 4 squad referral (+172) and bet 5 evening walk-ins (+300)' : 'bet 1 show-up programme and waitlist release (+139)';
+        const short = projRegs - planRegs;
         const gap_breakdown = {
+          projected_gap: f.projected_gap,
+          planned_from_bets_not_in_projection: notInProjection,
+          gap_left_if_those_bets_deliver: channelPart,
+          channels_vs_plan_registrants: short,
           plan_channel_registrants: planRegs,
-          plan_channel_attendees_incl_walk_ins: planAtt,
-          from_channels_vs_plan: channelPart,
-          from_bets_not_in_projection: -notInProjection,
-          check: `${channelPart} + ${-notInProjection} = ${channelPart - notInProjection} (projected_gap ${f.projected_gap}; any 1-2 difference is rounding)`,
-          how_to_read: 'from_channels_vs_plan = (projected_registrants - plan_channel_registrants) x assumed show rate: negative means channels are projected short of plan. from_bets_not_in_projection = attendees the target expects from bets the projection leaves out (base: bet 1 = 139; stretch: bet 1 202 + bet 4 172 + bet 5 300). Quote both parts when explaining the gap.',
+          summary: `Projected gap ${f.projected_gap}. The target counts ${betsText}, which the projection leaves out: if they deliver as planned they close ${notInProjection} of it, leaving ${channelPart}. That remainder is the channels: projected ${projRegs} registrants vs the plan's ${planRegs} (${short >= 0 ? '+' : ''}${short}) x ${f.assumed_show_rate_pct}% show rate. So the bets do NOT create a surplus; closing the last ${Math.abs(channelPart)} needs channels back on plan or a bet beyond plan.`,
+          how_to_read: 'Quote summary. Do not add the bets on top of the gap a second time: they are already inside the target.',
         };
         // Lead with the season projection; rename the registered-so-far figures so they are not read as the forecast.
         const { forecast_attendees, gap_to_target, ...rest } = f as Record<string, unknown>;

@@ -62,10 +62,11 @@ describe('copilot tools (live local data)', () => {
     const f = (await runTool(c26, 'get_forecast', {})) as { projected_gap: number; gap_breakdown: Record<string, number> };
     const g = f.gap_breakdown;
     expect(g.plan_channel_registrants).toBe(3117);
-    expect(g.from_bets_not_in_projection).toBe(-139);
-    expect(Math.abs(g.from_channels_vs_plan + g.from_bets_not_in_projection - f.projected_gap)).toBeLessThanOrEqual(2);
+    expect(g.gap_left_if_those_bets_deliver).toBe(-52);
+    expect(g.planned_from_bets_not_in_projection).toBe(139);
+    expect(Math.abs(g.gap_left_if_those_bets_deliver - g.planned_from_bets_not_in_projection - f.projected_gap)).toBeLessThanOrEqual(2);
     const s = (await runTool({ ...c26, target: '2026_stretch' }, 'get_forecast', {})) as { gap_breakdown: Record<string, number> };
-    expect(s.gap_breakdown.from_bets_not_in_projection).toBe(-674);
+    expect(s.gap_breakdown.planned_from_bets_not_in_projection).toBe(674);
   });
 
   it('as-of date changes the answer', async () => {

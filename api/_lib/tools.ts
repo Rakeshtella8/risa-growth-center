@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { projectPlan, ChannelBase, MARGINAL_MULT } from '../../src/lib/whatIf.js';
 import { evaluate } from './calc.js';
 import { evaluateBet } from '../../src/lib/bets.js';
+import { projectedFlag } from '../../src/lib/flags.js';
 import type { Bet, ChannelKpi, ChannelProjection, ChannelWeek, FunnelRow } from '../../src/lib/types.js';
 
 export interface Ctx {
@@ -42,7 +43,7 @@ export const toolDefs = [
   fn('calculate', 'Exact arithmetic. Use for EVERY derived number (differences, ratios, percentages, sums). Supports + - * / ( ) and numbers.', {
     expression: { type: 'string', description: 'e.g. (93000+59000)/274000*100' },
   }, ['expression']),
-  fn('what_if_budget', 'Projects registrants and attendees if channel budgets change, using each channel\'s 2025 cost per registrant and show rate, with 1.5x marginal cost above 2025 spend [assumption]. Give new total spend per campaign_id (C01 Campus Ambassadors, C02 Paid Social, C03 Creator Partners, C04 College Partnerships, C05 Student Referrals, C06 Organic Search, C07 Community Groups). Channels not listed keep 2025 spend.', {
+  fn('what_if_budget', 'Projects registrants and attendees if channel budgets change, using each channel\'s 2025 cost per registrant and show rate, with 1.5x marginal cost above 2025 spend [assumption]. Give new total spend per campaign_id (C01 Campus Ambassadors, C02 Paid Social, C03 Creator Partners, C04 College Partnerships, C05 Student Referrals, C06 Organic Search, C07 Community Groups). In the 2026 fest year, channels not listed keep their 2026 planned budget (returned as planned_budgets; base plan C01 60000, C02 30000, C03 15000, C04 75000, C05 40000, C06 25000, C07 25000), so "move 10k from Creators to Referrals" = {"C03": 5000, "C05": 50000}. In the 2025 replay they keep 2025 spend.', {
     spend: { type: 'object', additionalProperties: { type: 'number' }, description: 'e.g. {"C03": 49000, "C05": 29000}' },
   }, ['spend']),
   fn('propose_task', 'Propose a task for the campaign manager. This does NOT create it: the user sees a card and must click Confirm. Use after recommending an action.', {
@@ -107,12 +108,21 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
       const totSpend = rows.reduce((a, r) => a + Number(r.spend_inr ?? 0), 0);
       const totVis = rows.reduce((a, r) => a + Number(r.visitors ?? 0), 0);
       const own = new Map((owners ?? []).map((o: { campaign_id: string; owner_name: string }) => [o.campaign_id, o.owner_name]));
-      const full = rows.map((r) => ({ ...r, owner_name: own.get(String(r.campaign_id)) ?? null,
+      const proj = (await rpc(ctx, 'f_channel_projection', { p_as_of, p_edition }).catch(() => [])) as ChannelProjection[];
+      const hasProj = proj.some((p) => p.projected_cost_per_registrant !== null);
+      const full = rows.map((r0) => {
+        const p = proj.find((x) => x.campaign_id === r0.campaign_id);
+        const pf = projectedFlag(r0 as unknown as ChannelKpi, p);
+        const r = hasProj ? { ...r0, cost_per_registrant_so_far: r0.cost_per_registrant, cost_per_registrant: undefined,
+          projected_registrants: p?.projected_registrants ?? null, plan_registrants: p?.plan_registrants ?? null, planned_budget: p?.budget ?? null,
+          projected_cost_per_registrant: pf.projected, flag: pf.flag } : r0;
+        return ({ ...r, owner_name: own.get(String(r.campaign_id)) ?? null,
         share_of_spend_pct: totSpend ? Math.round(Number(r.spend_inr) / totSpend * 1000) / 10 : null,
-        share_of_attributed_visitors_pct: totVis ? Math.round(Number(r.visitors) / totVis * 1000) / 10 : null }));
-      const columns = full.length ? Object.keys(full[0]).filter((c) => c !== 'channel') : [];
+        share_of_attributed_visitors_pct: totVis ? Math.round(Number(r.visitors) / totVis * 1000) / 10 : null }); });
+      const columns = full.length ? Object.keys(full[0]).filter((c) => c !== 'channel' && !(hasProj && c === 'cost_per_registrant')) : [];
       return { as_of: ctx.asOf ?? 'all data',
-        note: 'Table: each row lists values in the order of columns. cost_ceiling = max cost per registrant before the channel is flagged red (1.5x its 2025 cost; Paid Social = its 2025 average). A channel is above its ceiling only if cost_per_registrant > cost_ceiling.',
+        note: 'Table: each row lists values in the order of columns. cost_ceiling = max cost per registrant before the channel is flagged red (1.5x its 2025 cost; Paid Social = its 2025 average). A channel is above its ceiling only if cost_per_registrant > cost_ceiling.' + (hasProj
+          ? ' Mid-season (2026): flag and ceiling checks use projected_cost_per_registrant = planned_budget / projected_registrants [A] (same as the Bets screen and Slide 3): red above the ceiling or show rate < 70%, amber within 5% of it, green below. cost_per_registrant_so_far runs high mid-season because spend comes before registrations; do not judge a channel on it.' : ''),
         columns, rows: full.map((r) => columns.map((c) => (r as Record<string, unknown>)[c])) };
     }
     case 'get_weekly_pace':
@@ -230,17 +240,27 @@ export async function runTool(ctx: Ctx, name: string, args: Json): Promise<unkno
         spend_2025: Number(k.spend_inr), registrants_2025: Number(k.registrants),
         show_rate_pct: Number(k.registrants) > 0 ? (100 * Number(k.visitors)) / Number(k.registrants) : 0,
       }));
+      // 2026: start from the planned channel budgets (the deck's base plan); channels not named keep their plan budget.
+      let plan: Record<string, number> = {};
+      if (ctx.edition !== '2025') {
+        const { data: camps } = await ctx.db.from('campaigns').select('campaign_id,budget_2026_inr');
+        for (const c of (camps ?? []) as { campaign_id: string; budget_2026_inr: number | null }[]) if (c.budget_2026_inr !== null) plan[c.campaign_id] = Number(c.budget_2026_inr);
+      }
+      const usePlan = Object.keys(plan).length > 0;
       const spend = (args.spend ?? {}) as Record<string, number>;
-      const before = projectPlan(base, {});
-      const after = projectPlan(base, spend);
+      const before = projectPlan(base, usePlan ? plan : {});
+      const after = projectPlan(base, usePlan ? { ...plan, ...spend } : spend);
       const r1 = (x: number) => Math.round(x * 10) / 10;
       return {
-        assumption: `Spend above the 2025 level buys registrants at ${MARGINAL_MULT}x the 2025 average cost; cuts scale down proportionally; walk-ins fixed at 125 [A]. Baseline = the full 2025 campaign.`,
+        assumption: `Spend above the 2025 level buys registrants at ${MARGINAL_MULT}x the 2025 average cost; cuts scale down proportionally; each channel keeps its 2025 show rate; walk-ins fixed at 125 [A]. ` + (usePlan
+          ? 'Baseline = the 2026 planned channel budgets (before = the plan, 3,117 registrants); channels not named keep their plan budget. These are season totals, not results to date.'
+          : 'Baseline = the full 2025 campaign.'),
+        planned_budgets: usePlan ? plan : undefined,
         before: { total_spend: before.totalSpend, registrants: r1(before.registrants), attendees: r1(before.attendees) },
         after: { total_spend: after.totalSpend, registrants: r1(after.registrants), attendees: r1(after.attendees) },
         delta: { spend: after.totalSpend - before.totalSpend, registrants: r1(after.registrants - before.registrants), attendees: r1(after.attendees - before.attendees) },
         by_channel: after.rows.filter((r) => spend[r.campaign_id] !== undefined).map((r) => ({
-          campaign_id: r.campaign_id, campaign_name: r.campaign_name, spend_2025: r.spend_2025, new_spend: r.new_spend,
+          campaign_id: r.campaign_id, campaign_name: r.campaign_name, spend_2025: r.spend_2025, planned_spend: usePlan ? plan[r.campaign_id] : undefined, new_spend: r.new_spend,
           registrants: r1(r.registrants), attendees: r1(r.attendees), marginal_cost_per_registrant: r1(r.marginal_cost_per_registrant),
         })),
       };

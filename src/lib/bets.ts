@@ -24,9 +24,15 @@ export function evaluateBet(b: Bet, kpis: ChannelKpi[], weeks?: ChannelWeek[], f
     case 1: {
       // Live when passes are being issued: QR passes opened / confirmed registrants
       const f = (k: string) => Number(funnel?.find((r) => r.metric === k)?.value ?? 0);
+      // Second stop rule (Slide 3): opt-outs above 6.5% of identified people (2025: 229 ÷ 3,500) → pause reminders.
+      const opt = kpis.reduce((a, k) => a + Number(k.opt_outs ?? 0), 0); const idn = f('identified_pre_event');
+      const optPct = idn ? Math.round((1000 * opt) / idn) / 10 : null;
+      const optText = optPct === null ? '' : ` · opt-outs ${optPct}% of identified (stop above 6.5%)`;
+      if (f('qr_passes_issued') > 0 && optPct !== null && optPct > 6.5)
+        return { value: optPct, unit: '% of identified opted out of messages', source: 'data', verdict: 'stop', why: `Opt-outs ${optPct}% > 6.5% → pause reminders, captain-led nudges only; the waitlist release keeps running` };
       if (f('qr_passes_issued') > 0 && f('confirmed') > 0) {
         const v = Math.round((1000 * f('qr_passes_downloaded')) / f('confirmed')) / 10;
-        return { value: v, unit: '% of confirmed opened their pass', source: 'data', ...band(v, 85, 70, 'higher'), why: '≥ 85% scale · 70–85% change · < 70% stop' };
+        return { value: v, unit: '% of confirmed opened their pass', source: 'data', ...band(v, 85, 70, 'higher'), why: '≥ 85% scale · 70–85% change · < 70% stop' + optText };
       }
       if (manual === null) return none('Enter the QR-pass rate (passes ÷ confirmed, %) as a KPI reading.');
       return { value: manual, unit: '%', source: 'manual reading', ...band(manual, 85, 70, 'higher'), why: '≥ 85% scale · 70–85% change · < 70% stop' };

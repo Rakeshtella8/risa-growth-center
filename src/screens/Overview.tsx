@@ -80,7 +80,7 @@ export default function Overview() {
           sub={pre ? <>{pct(f.pace_pct ?? 0)} of plan pace ({n0(f.expected_registrants_by_now)} by now){vsLast !== null && <> · {vsLast >= 0 ? '+' : ''}{n1(vsLast)}% vs same week last year ({n0(lastYear)})</>}</>
             : <>target {n0(t.registrants)} · {pct((100 * m('registrants')) / t.registrants)} of target</>} />
         <Kpi label={pre ? 'Confirmed places' : 'Show rate'} tag="D" value={pre ? n0(m('confirmed')) : pct(m('show_rate_pct'))}
-          sub={pre ? <>of {n0(m('capacity'))} capacity · {n0(m('waitlisted'))} waitlisted</> : 'registered visitors ÷ registrants'}
+          sub={pre ? <>of {n0(m('capacity'))} capacity · {n0(m('waitlisted'))} waitlisted</> : 'registered attendees ÷ registrants'}
           tone={!pre && m('show_rate_pct') < 70 ? 'bad' : 'default'} />
         <Kpi label="Marketing spend" tag="D" value={rs(m('marketing_spend_inr'))} sub={<>of {rs(t.budget_inr)} budget · {pct((100 * m('marketing_spend_inr')) / t.budget_inr)}</>} />
         {pre
@@ -90,7 +90,7 @@ export default function Overview() {
           : <Kpi label="Cost per attendee" tag="D" value={!m('registered_visitors') ? '–' : rs(m('marketing_spend_inr') / m('registered_visitors'))} sub="spend ÷ campaign-driven attendees" />}
       </div>
       <p className="text-xs text-slate-500">{pre ? (hasBase
-          ? <>Projected attendees = projected registrants × {n1(ed.assumed_show_rate_pct)}% show rate (the plan's channel mix) + {n0(ed.assumed_walk_ins)} walk-ins [A]. Registrants are projected from how much of last year's season had arrived by this point, weighted by the planned channel budgets.{t.target_key.startsWith('2026') && <> The {n0(t.verified_attendees)} target also counts the show-up programme and waitlist release (bet 1, +{t.target_key === '2026_stretch' ? 202 : 139}), which this projection leaves out.</>}</>
+          ? <>Projected attendees = projected registrants × {n1(ed.assumed_show_rate_pct)}% show rate (the plan's channel mix) + {n0(ed.assumed_walk_ins)} walk-ins [A]. Registrants are projected from how much of last year's season had arrived by this point, weighted by the planned channel budgets.{t.target_key === '2026_base' && <> The {n0(t.verified_attendees)} target also counts bet 1, the show-up programme and waitlist release (+139), which this projection leaves out.</>}{t.target_key === '2026_stretch' && <> The {n0(t.verified_attendees)} target also counts bet 1 show-up and waitlist (+202), bet 4 squad referral (+172) and bet 5 evening walk-ins (+300), which this projection leaves out.</>}</>
           : <>Projected attendees = people registered so far × {n1(ed.assumed_show_rate_pct)}% show rate + {n0(ed.assumed_walk_ins)} walk-ins, plus registrations at the last 3 weeks' pace until the fest [A].</>)
         : live ? <>Fest in progress. Forecast = the larger of people verified so far [D] and registrants × {n1(ed.assumed_show_rate_pct)}% show rate + {n0(ed.assumed_walk_ins)} walk-ins [A].</> : <>Final count of people verified at the gate [D].</>}</p>
 
@@ -150,7 +150,7 @@ export default function Overview() {
         <p className="mt-3 text-xs text-slate-500">
           Participants: {n0(m('participants'))} · spectators: {n0(m('spectators'))} (role recorded on the registration form) · reminders sent: {n0(m('reminders_sent'))}
           {' '}· cost per registrant: {m('registrants') ? '₹' + n1(m('marketing_spend_inr') / m('registrants')) : '–'}
-          {!pre && <> · visitors on both days: {n0(m('multi_day_visitors'))} · walk-ins: {n0(m('walk_in_visitors'))}</>}
+          {!pre && <> · attendees on both days: {n0(m('multi_day_visitors'))} · walk-ins: {n0(m('walk_in_visitors'))}</>}
         </p>
       </Section>
     </div>

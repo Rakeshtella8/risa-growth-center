@@ -3,7 +3,8 @@ import { Bar, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, Respons
 import { useApp, useData } from '../lib/app';
 import { rpc, db, audit } from '../lib/supabase';
 import { n0, n1, rs, rs1, pct, flagClass, asOfLabel } from '../lib/format';
-import { ChannelKpi, ChannelWeek, PlanTarget } from '../lib/types';
+import { ChannelKpi, ChannelProjection, ChannelWeek, PlanTarget } from '../lib/types';
+import { projectedFlag } from '../lib/flags';
 import { projectPlan, ChannelBase, MARGINAL_MULT } from '../lib/whatIf';
 import { Section, AskButton, Loading, Tag } from '../components/ui';
 
@@ -14,11 +15,12 @@ const wkLabel = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'n
 export default function Channels() {
   const { asOf, target, edition, today } = useApp();
   const { data, error } = useData(async () => {
-    const [kpis, weekly] = await Promise.all([
+    const [kpis, weekly, proj] = await Promise.all([
       rpc<ChannelKpi[]>('f_channel_kpis', { p_as_of: asOf, p_edition: edition }),
       rpc<ChannelWeek[]>('f_channel_weekly', { p_as_of: asOf, p_edition: edition }).catch(() => [] as ChannelWeek[]),
+      rpc<ChannelProjection[]>('f_channel_projection', { p_as_of: asOf, p_edition: edition }).catch(() => [] as ChannelProjection[]),
     ]);
-    return { kpis, weekly };
+    return { kpis, weekly, proj };
   }, [asOf]);
   const { data: full } = useData(async () => {
     const [kpis, camps, targets] = await Promise.all([
@@ -29,7 +31,9 @@ export default function Channels() {
     return { kpis, camps, budget: targets.find((t) => t.target_key === target)?.budget_inr ?? 300000 };
   }, [target]);
   if (!data) return <Loading error={error} />;
-  const { kpis, weekly } = data;
+  const { kpis, weekly, proj } = data;
+  const pf = (k: ChannelKpi) => projectedFlag(k, proj.find((p) => p.campaign_id === k.campaign_id));
+  const hasProj = kpis.some((k) => pf(k).projected !== null);
   const totals = kpis.reduce((a, k) => ({ sp: a.sp + Number(k.spend_inr), reg: a.reg + k.registrants, vis: a.vis + k.visitors }), { sp: 0, reg: 0, vis: 0 });
   const hasFunnel = kpis.some((k) => k.sessions !== undefined);
 
@@ -40,14 +44,16 @@ export default function Channels() {
           <h1 className="text-xl font-bold text-slate-900">Channels</h1>
           <p className="text-sm text-slate-500">As of <b>{asOfLabel(asOf, today)}</b>. Each registrant counts for the campaign recorded on their registration [D]. Cost ceiling: 1.5× the channel's 2025 cost per registrant, except Paid Social at ₹137 [A].</p>
         </div>
-        <AskButton q="Which channels are underperforming and why? Compare cost per visitor, show rate and opt-outs, and say what to scale, change or stop." label="Diagnose channels" />
+        <AskButton q="Which channels are underperforming and why? Compare cost per attendee, show rate and opt-outs, and say what to scale, change or stop." label="Diagnose channels" />
       </div>
 
-      <Section title="Campaign KPIs" sub="Red = above cost ceiling or show rate below 70% · amber = above 2025 cost · green = within. Status is set on Campaigns & tasks.">
+      <Section title="Campaign KPIs" sub={hasProj
+        ? 'Flags use the projected end-of-campaign cost per registrant (planned budget ÷ projected registrants) [A], as on the Bets screen: red = above the ceiling or show rate below 70% · amber = within 5% of the ceiling · green = below. Cost so far runs high mid-season because spend comes before registrations.'
+        : 'Red = above cost ceiling or show rate below 70% · amber = above 2025 cost · green = within. Status is set on Campaigns & tasks.'}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px]">
             <thead className="border-b border-slate-200"><tr>
-              {['Campaign', 'Status', 'Spend', 'Identified', 'Registrants', 'Visitors', 'Show rate', '₹ / registrant', 'Ceiling', '₹ / visitor', 'Opt-outs', 'Flag'].map((h) => <th key={h} className="th">{h}</th>)}
+              {['Campaign', 'Status', 'Spend', 'Identified', 'Registrants', 'Attendees', 'Show rate', hasProj ? '₹ / registrant so far' : '₹ / registrant', ...(hasProj ? ['₹ / registrant projected'] : []), 'Ceiling', '₹ / attendee', 'Opt-outs', 'Flag'].map((h) => <th key={h} className="th">{h}</th>)}
             </tr></thead>
             <tbody>
               {kpis.map((k) => (
@@ -60,17 +66,18 @@ export default function Channels() {
                   <td className="td">{n0(k.visitors)}</td>
                   <td className={`td ${k.visitors && k.show_rate_pct !== null && k.show_rate_pct < 70 ? 'font-semibold text-red-700' : ''}`}>{k.visitors ? pct(k.show_rate_pct) : '–'}</td>
                   <td className="td">{rs1(k.cost_per_registrant)}</td>
+                  {hasProj && <td className="td font-medium">{rs1(pf(k).projected)}</td>}
                   <td className="td text-slate-500">{rs1(k.cost_ceiling)}</td>
                   <td className="td">{rs1(k.cost_per_visitor)}</td>
                   <td className="td">{n0(k.opt_outs)}</td>
-                  <td className="td"><span className={`tag ${flagClass[k.flag]}`}>{k.flag}</span></td>
+                  <td className="td"><span className={`tag ${flagClass[pf(k).flag]}`}>{pf(k).flag}</span></td>
                 </tr>
               ))}
               <tr className="bg-slate-50 font-semibold">
                 <td className="td">Total (attributed)</td><td className="td" /><td className="td">{rs(totals.sp)}</td><td className="td" />
                 <td className="td">{n0(totals.reg)}</td><td className="td">{n0(totals.vis)}</td>
                 <td className="td">{totals.reg && totals.vis ? pct((100 * totals.vis) / totals.reg) : '–'}</td>
-                <td className="td">{totals.reg ? rs1(totals.sp / totals.reg) : '–'}</td><td className="td" />
+                <td className="td">{totals.reg ? rs1(totals.sp / totals.reg) : '–'}</td>{hasProj && <td className="td" />}<td className="td" />
                 <td className="td">{totals.vis ? rs1(totals.sp / totals.vis) : '–'}</td><td className="td" colSpan={2} />
               </tr>
             </tbody>

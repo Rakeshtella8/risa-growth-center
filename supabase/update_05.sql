@@ -876,12 +876,23 @@ end $$;
 -- Builds the first weeks of the 2026 campaign (up to the 2026 demo clock) from the 2025 campaign shifted by
 -- 364 days (same weekday), with each channel's volume and spend scaled by an assumed 2026 multiplier [A].
 -- Every row is flagged is_simulated; remove_simulated() deletes them, reset restores them.
+-- Move each table's row_id counter past the highest row_id in use. Rows copied in with explicit ids
+-- (data loads, Reset data) can leave a counter behind, which makes the next insert collide.
+create or replace function sync_row_ids() returns void language plpgsql as $$
+declare t text;
+begin
+  foreach t in array array['campaigns','daily_marketing','people','interactions','registrations','registration_history','checkins'] loop
+    execute format('select setval(pg_get_serial_sequence(''public.%I'',''row_id''), greatest(coalesce((select max(row_id) from public.%I),0),1))', t, t);
+  end loop;
+end $$;
+
 create or replace function seed_simulated_2026() returns json language plpgsql as $$
 declare e editions; cut timestamp; sh interval := interval '364 days'; n_people int; n_reg int;
 begin
   select * into e from editions where edition = '2026';
   cut := e.demo_clock;
   perform remove_simulated();
+  perform sync_row_ids();
   -- The simulation runs the deck's base plan (analysis/target_model.py) [A]:
   --   m     = 2026 plan registrants / 2025 registrants per channel (e.g. College Partnerships 876 / 450)
   --   ratio = 2026 channel budget / 2025 spend (e.g. 75,000 / 31,000); spend keeps 2025's weekly timing

@@ -42,11 +42,12 @@ export function evaluateBet(b: Bet, kpis: ChannelKpi[], weeks?: ChannelWeek[], f
       if (p) {
         const v = Number(p.projected_cost_per_registrant); const n = Number(p.projected_registrants);
         const unit = '₹ per registrant, projected at campaign end';
-        const volText = `on course for ${n} registrants (plan ${p.plan_registrants}, i.e. 88 a week)`;
+        const planN = Math.round(Number(p.plan_registrants ?? 876));
+        const volText = `on course for ${n} registrants (plan ${planN}, about ${Math.round(planN / 10)} a week over the 10-week push)`;
         if (v > 138) return { value: v, unit, source: 'data', verdict: 'stop', why: `Above ₹138 → move spend to referrals · ${volText}` };
         if (v > 103) return { value: v, unit, source: 'data', verdict: 'change', why: `₹103–138 → narrow to top-converting colleges · ${volText}` };
-        if (n >= 876) return { value: v, unit, source: 'data', verdict: 'scale', why: `≤ ₹103 and ${volText} → add colleges` };
-        return { value: v, unit, source: 'data', verdict: 'change', why: `Cost is fine (≤ ₹103) but ${volText}, short of the 876 needed → add colleges only after volume holds` };
+        if (n >= planN) return { value: v, unit, source: 'data', verdict: 'scale', why: `≤ ₹103 and ${volText} → add colleges` };
+        return { value: v, unit, source: 'data', verdict: 'change', why: `Cost is fine (≤ ₹103) but ${volText}, short of the ${planN} planned → add colleges only after volume holds` };
       }
       const c = ch('C04'); const v = c?.cost_per_registrant ?? null;
       if (v === null) return none('No College Partnerships registrants yet.');
@@ -64,7 +65,7 @@ export function evaluateBet(b: Bet, kpis: ChannelKpi[], weeks?: ChannelWeek[], f
       if (v === null) return none('No Paid Social registrants yet.');
       if (p) {
         const unit = '₹ per registrant (Paid Social), projected at campaign end';
-        if (v > 137) return { value: v, unit, source: 'data', verdict: 'stop', why: `Paid above the ₹137 ceiling → cut paid to zero (plan: ₹30,000 ÷ ${p.plan_registrants} = ₹${Math.round(30000 / Number(p.plan_registrants))}, right at the line)` };
+        if (v > 137) return { value: v, unit, source: 'data', verdict: 'stop', why: `Paid above the ₹137 ceiling → cut paid to zero (plan: ₹${Number(p.budget ?? 30000).toLocaleString("en-IN")} ÷ ${Math.round(Number(p.plan_registrants))} = ₹${Math.round(Number(p.budget ?? 30000) / Number(p.plan_registrants))}${Math.round(Number(p.budget ?? 30000) / Number(p.plan_registrants)) === 137 ? ", right at the line" : ""})` };
         if (v >= 137 * 0.95) return { value: v, unit, source: 'data', verdict: 'change', why: 'Paid within 5% of the ₹137 ceiling → hold, do not move more money yet' };
         return { value: v, unit, source: 'data', verdict: 'scale', why: 'Paid more than 5% below the ₹137 ceiling → keep shifting budget to peer channels' };
       }

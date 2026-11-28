@@ -10,16 +10,17 @@ const short = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN
 export default function Overview() {
   const { asOf, target, edition, ed, today, phase } = useApp();
   const { data, error } = useData(async () => {
-    const [funnel, forecast, pace, targets] = await Promise.all([
+    const [funnel, forecast, pace, targets, sim] = await Promise.all([
       rpc<FunnelRow[]>('f_funnel', { p_as_of: asOf, p_edition: edition }),
       rpc<Forecast[]>('f_forecast', { p_as_of: asOf, p_target: target, p_edition: edition }),
       rpc<PaceWeek[]>('f_pace_compare', { p_as_of: asOf, p_edition: edition, p_target: target }),
       db.from('plan_targets').select('*').then((r) => (r.data ?? []) as PlanTarget[]),
+      edition === '2025' ? Promise.resolve(0) : db.from('registrations').select('row_id', { count: 'exact', head: true }).eq('is_simulated', true).then((r) => r.count ?? 0),
     ]);
-    return { funnel, forecast: forecast[0], pace, targets };
+    return { funnel, forecast: forecast[0], pace, targets, sim };
   }, [asOf, target]);
   if (!data) return <Loading error={error} />;
-  const { funnel, forecast: f, pace, targets } = data;
+  const { funnel, forecast: f, pace, targets, sim } = data;
   const t = targets.find((x) => x.target_key === target)!;
   const m = (k: string) => metric(funnel, k);
   const pre = phase === 'pre';
@@ -63,19 +64,25 @@ export default function Overview() {
         </div>
         <AskButton q="Are we on track against the selected target? If not, where is the biggest gap and what should we do first?" label="Are we on track?" />
       </div>
-      {edition === '2026' && (
+      {edition === '2026' && (sim > 0 ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           There is no real 2026 data yet. The weeks up to {dateLabel(ed.demo_clock)} are <b>simulated</b> from the 2025 campaign with assumed channel changes [A].
           Registrations, status changes and check-ins you make here are real and count at once. The Data screen can remove the simulated rows.
         </p>
-      )}
+      ) : (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          The simulated 2026 weeks have been removed, so 2026 shows only what has been entered in the app ({n0(m('registrants'))} registrants so far).
+          <b> Reset data</b> in the top bar brings the simulation back.
+        </p>
+      ))}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {pre && hasBase && !m('registrants') ? <Kpi label={attendeeLabel} tag="A" value="–" sub="No 2026 registrations yet: the projection starts with the first sign-up." /> :
         <Kpi label={attendeeLabel} tag={pre || live ? 'A' : 'D'} value={n0(headline)} tone={headGap >= 0 ? 'good' : 'bad'}
           sub={<>{headGap >= 0 ? '+' : ''}{n0(headGap)} vs target {n0(f.target_attendees)}{pre && f.projected_attendees !== undefined
             ? (hasBase ? <> · registrants on course for {n0(f.projected_registrants)} (plan {n0(t.registrants)})</>
               : <> · {n0(f.forecast_attendees)} from people already registered, plus about {n0(f.recent_weekly_registrations)} registrations a week for the {n1(f.weeks_to_event)} weeks left</>)
-            : live ? <> · {n0(f.actual_visitors)} verified so far</> : null}</>} />
+            : live ? <> · {n0(f.actual_visitors)} verified so far</> : null}</>} />}
         <Kpi label="External registrants" tag="D" value={n0(m('registrants'))} tone={pre ? ((f.pace_pct ?? 0) >= 100 ? 'good' : 'bad') : 'default'}
           sub={pre ? <>{pct(f.pace_pct ?? 0)} of plan pace ({n0(f.expected_registrants_by_now)} by now){vsLast !== null && <> · {vsLast >= 0 ? '+' : ''}{n1(vsLast)}% vs same week last year ({n0(lastYear)})</>}</>
             : <>target {n0(t.registrants)} · {pct((100 * m('registrants')) / t.registrants)} of target</>} />
